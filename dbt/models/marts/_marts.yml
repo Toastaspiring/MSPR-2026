@@ -1,0 +1,49 @@
+version: 2
+
+models:
+
+  - name: mart_oee_par_machine
+    description: >
+      Gold — OEE proxy par machine CNC, par jour, par usine.
+      Performance  = avg(temps_cycle_theo / temps_cycle_reel)
+      Qualité      = (total_prod - total_nok) / total_prod
+      (Disponibilité nécessite une série temporelle continue — approximée ici.)
+    columns:
+      - name: usine_id
+        tests: [not_null]
+      - name: id_machine
+        tests: [not_null]
+      - name: date
+        tests: [not_null]
+
+  - name: mart_qualite_par_usine
+    description: >
+      Gold — Indicateurs qualité par usine et par jour.
+      Source: M5_Contrôle_Qualité.
+      Inclut taux de conformité, distribution des motifs de rebut.
+    columns:
+      - name: usine_id
+        tests: [not_null]
+      - name: date
+        tests: [not_null]
+
+  - name: mart_tracabilite_piece
+    description: >
+      Gold — Traçabilité complète de chaque pièce de M1 à M8.
+      Une ligne = une pièce. Jointure LEFT JOIN sur part_id + usine.
+      M4_Galvanisation joint via batch_id (pas de part_id direct).
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: usine_id
+        tests: [not_null]
+
+  - name: mart_production_vs_plan
+    description: >
+      Gold — Production réelle vs objectif du plan, par usine et par jour.
+      Source: Production_Plan (objectif) × M8_Emballage (réel expédié).
+    columns:
+      - name: usine_id
+        tests: [not_null]
+      - name: date
+        tests: [not_null]

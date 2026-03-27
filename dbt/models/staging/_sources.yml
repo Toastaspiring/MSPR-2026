@@ -1,0 +1,68 @@
+version: 2
+
+sources:
+  - name: raw_usine_a
+    description: "Données brutes Usine A — bronze layer (ingérées via loader.py)"
+    schema: raw
+    tables:
+      - name: m1_decoupe_laser
+        identifier: usine_a__m1_decoupe_laser
+      - name: m1_decoupe_matiere
+        identifier: usine_a__m1_decoupe_matiere
+      - name: m2_poinconneuse
+        identifier: usine_a__m2_poinconneuse
+      - name: m2_usinage_cnc
+        identifier: usine_a__m2_usinage_cnc
+      - name: m3_percage_taraudage
+        identifier: usine_a__m3_percage_taraudage
+      - name: m3_presse_plieuse
+        identifier: usine_a__m3_presse_plieuse
+      - name: m4_galvanisation
+        identifier: usine_a__m4_galvanisation
+      - name: m4_traitement_thermique
+        identifier: usine_a__m4_traitement_thermique
+      - name: m5_controle_qualite
+        identifier: usine_a__m5_controle_qualite
+      - name: m5_finition_ebavurage
+        identifier: usine_a__m5_finition_ebavurage
+      - name: m6_controle_dimensionnel
+        identifier: usine_a__m6_controle_dimensionnel
+      - name: m7_controle_visuel
+        identifier: usine_a__m7_controle_visuel
+      - name: m8_emballage
+        identifier: usine_a__m8_emballage
+      - name: production_plan
+        identifier: usine_a__production_plan
+
+  - name: raw_usine_b
+    description: "Données brutes Usine B — bronze layer (ingérées via loader.py)"
+    schema: raw
+    tables:
+      - name: m1_decoupe_laser
+        identifier: usine_b__m1_decoupe_laser
+      - name: m1_decoupe_matiere
+        identifier: usine_b__m1_decoupe_matiere
+      - name: m2_poinconneuse
+        identifier: usine_b__m2_poinconneuse
+      - name: m2_usinage_cnc
+        identifier: usine_b__m2_usinage_cnc
+      - name: m3_percage_taraudage
+        identifier: usine_b__m3_percage_taraudage
+      - name: m3_presse_plieuse
+        identifier: usine_b__m3_presse_plieuse
+      - name: m4_galvanisation
+        identifier: usine_b__m4_galvanisation
+      - name: m4_traitement_thermique
+        identifier: usine_b__m4_traitement_thermique
+      - name: m5_controle_qualite
+        identifier: usine_b__m5_controle_qualite
+      - name: m5_finition_ebavurage
+        identifier: usine_b__m5_finition_ebavurage
+      - name: m6_controle_dimensionnel
+        identifier: usine_b__m6_controle_dimensionnel
+      - name: m7_controle_visuel
+        identifier: usine_b__m7_controle_visuel
+      - name: m8_emballage
+        identifier: usine_b__m8_emballage
+      - name: production_plan
+        identifier: usine_b__production_plan

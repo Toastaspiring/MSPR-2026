@@ -1,0 +1,4 @@
+date,shift,start_time,end_time,target_volume
+2023-10-26,Morning,06:00,14:00,400
+2023-10-26,Afternoon,14:00,22:00,400
+2023-10-26,Night,22:00,06:00,200

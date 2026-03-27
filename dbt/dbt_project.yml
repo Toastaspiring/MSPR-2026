@@ -1,0 +1,25 @@
+name: industrial_pipeline
+version: "1.0.0"
+config-version: 2
+
+profile: industrial_pipeline
+
+model-paths:  ["models"]
+macro-paths:  ["macros"]
+test-paths:   ["tests"]
+analysis-paths: ["analyses"]
+seed-paths:   ["seeds"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  industrial_pipeline:
+    staging:
+      +schema: silver
+      +materialized: table
+      +tags: ["silver"]
+    marts:
+      +schema: gold
+      +materialized: table
+      +tags: ["gold"]

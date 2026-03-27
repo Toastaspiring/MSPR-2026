@@ -1,0 +1,7 @@
+industrial_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "warehouse/industrial.duckdb"
+      threads: 4

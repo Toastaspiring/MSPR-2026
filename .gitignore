@@ -1,0 +1,23 @@
+# Warehouse (DuckDB binary — regenerated via make run)
+warehouse/industrial.duckdb
+warehouse/*.duckdb
+
+# dbt artifacts
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/

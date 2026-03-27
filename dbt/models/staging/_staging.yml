@@ -1,0 +1,145 @@
+version: 2
+
+models:
+
+  - name: stg_m1_decoupe_laser
+    description: "Silver — Découpe Laser M1. Union Usine_A + Usine_B. Types castés, status normalisé."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+      - name: status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['RUN', 'STOP']
+      - name: _source_usine
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Usine_A', 'Usine_B']
+
+  - name: stg_m1_decoupe_matiere
+    description: "Silver — Découpe Matière M1. Union Usine_A + Usine_B."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m2_poinconneuse
+    description: "Silver — Poinçonneuse M2. Union Usine_A + Usine_B."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+      - name: status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['RUN', 'STOP']
+
+  - name: stg_m2_usinage_cnc
+    description: "Silver — Usinage CNC M2. Union Usine_A + Usine_B. Alarmes NONE → NULL."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m3_percage_taraudage
+    description: "Silver — Perçage / Taraudage M3."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m3_presse_plieuse
+    description: "Silver — Presse Plieuse M3."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m4_galvanisation
+    description: "Silver — Galvanisation M4. Granularité LOT (batch_id), pas de part_id."
+    columns:
+      - name: batch_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m4_traitement_thermique
+    description: "Silver — Traitement Thermique M4. courbe_montee_ok → boolean. lot_four supprimé (=batch_id). durete_sortie_hrc nullable."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m5_controle_qualite
+    description: "Silver — Contrôle Qualité M5. final_angle_measure 999.9 → NULL. is_conform → boolean. rebut_reason vide → NULL."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+      - name: is_conform
+        tests: [not_null]
+
+  - name: stg_m5_finition_ebavurage
+    description: "Silver — Finition / Ébavurage M5. taux_reprise_manuelle OUI/NON → boolean."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_m6_controle_dimensionnel
+    description: "Silver — Contrôle Dimensionnel M6. id_piece supprimé (=part_id). tol_min 999.9 → NULL. type_defaut NONE → NULL."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+      - name: resultat
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['OK', 'NOK']
+
+  - name: stg_m7_controle_visuel
+    description: "Silver — Contrôle Visuel M7. OUI/NON → boolean. defaut_peinture N/A → NULL. photo_url vide → NULL."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+      - name: decision
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['OK', 'RETOUCHE', 'REBUT']
+
+  - name: stg_m8_emballage
+    description: "Silver — Emballage M8. num_serie supprimé (=part_id). date_expedition casté en date."
+    columns:
+      - name: part_id
+        tests: [not_null]
+      - name: ts_event
+        tests: [not_null]
+
+  - name: stg_production_plan
+    description: "Silver — Plan de production. Union Usine_A + Usine_B."
+    columns:
+      - name: date
+        tests: [not_null]
+      - name: shift
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Morning', 'Afternoon', 'Night']
