@@ -126,6 +126,28 @@ class TestCompleteHourlyTimestamps:
         # Les nouvelles lignes sont marquées
         assert out["is_missing_timestamp"].sum() == 2
 
+    def test_imputed_rows_have_dedicated_quality_flag(self) -> None:
+        # Les lignes imputées doivent porter MISSING_TIMESTAMP_IMPUTED, pas "OK"
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-01-01 00:00", "2026-01-01 03:00"]),
+                "consumption_kWh": [10.0, 12.0],
+                "temperature_C": [50.0, 55.0],
+                "vibration": [1.0, 1.1],
+                "pressure": [50.0, 52.0],
+                "cycle_duration": [30.0, 32.0],
+                "rpm": [1500.0, 1510.0],
+                "voltage": [230.0, 232.0],
+                "failure": [0, 0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = complete_hourly_timestamps(df)
+        imputed = out[out["is_missing_timestamp"] == 1]
+        original = out[out["is_missing_timestamp"] == 0]
+        assert (imputed["quality_flag"] == "MISSING_TIMESTAMP_IMPUTED").all()
+        assert (original["quality_flag"] == "OK").all()
+
 
 class TestCorrectFailureNan:
     def test_rule_same_before_after(self) -> None:
@@ -140,6 +162,23 @@ class TestCorrectFailureNan:
         out = correct_failure_nan(df)
         assert out.loc[1, "failure"] == 0
         assert out.loc[1, "is_failure_nan_corrected"] == 1
+
+    def test_fallback_to_zero_on_ambiguous_cases(self) -> None:
+        # Cas ambigu : NaN en début de série, aucun voisin avant -> fallback 0
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="h"),
+                "failure": [np.nan, 1.0],
+                "rpm": [np.nan, 1500.0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = correct_failure_nan(df)
+        # Aucun NaN ne doit subsister + colonne castable en int
+        assert out["failure"].isna().sum() == 0
+        assert out["failure"].dtype.kind in {"i", "u"}
+        # Le fallback laisse une trace explicite dans quality_flag
+        assert "UNCERTAIN_FAILURE_DEFAULTED_TO_ZERO" in str(out.loc[0, "quality_flag"])
 
 
 class TestDetectAndCorrectOutliers:

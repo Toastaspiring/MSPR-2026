@@ -7,7 +7,9 @@ Bronze (CSV bruts mis à disposition par MECHA) :
 Silver / Gold : fichiers Parquet horodatés (compression snappy).
 
 Postgres (couche opérationnelle pour Grafana) :
-  - sensor_data        — séries Silver complètes (avec traçabilité)
+  - sensor_data        — colonnes capteurs Silver uniquement (sans
+                         traçabilité, qui reste dans les Parquet pour
+                         l'audit)
   - interventions      — log Silver des défaillances
   - feature_snapshot   — dernier point Gold par machine (scoring rapide)
 

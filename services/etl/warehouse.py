@@ -100,7 +100,19 @@ def upsert_silver_to_postgres(
     if df_gold is not None and not df_gold.empty:
         last = df_gold.sort_values("timestamp").groupby("machine_id").tail(1).reset_index(drop=True)
         last["timestamp"] = pd.to_datetime(last["timestamp"], utc=True)
-        last = last[[c for c in _FEATURE_SNAPSHOT_COLS if c in last.columns]]
+        # Garde-fou explicite : les colonnes NOT NULL côté Postgres doivent
+        # exister dans le DataFrame, sinon on lève AVANT le `to_sql` pour
+        # obtenir un message d'erreur clair (vs. erreur SQL cryptique).
+        required_cols = {"machine_id", "target_cycle", "timestamp"}
+        missing = required_cols - set(last.columns)
+        if missing:
+            raise RuntimeError(f"feature_snapshot : colonnes NOT NULL manquantes dans Gold : {sorted(missing)}")
+        # Sélection dans l'ordre exact défini ; les colonnes optionnelles
+        # absentes sont insérées en NaN.
+        for col in _FEATURE_SNAPSHOT_COLS:
+            if col not in last.columns:
+                last[col] = pd.NA
+        last = last[_FEATURE_SNAPSHOT_COLS]
         with engine.begin() as conn:
             conn.exec_driver_sql("TRUNCATE TABLE feature_snapshot")
             last.to_sql(

@@ -256,6 +256,22 @@ def convert_and_sort_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def coerce_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce les colonnes numériques en types numériques (NaN si invalide).
+
+    `validate_schema()` ne fait que rapporter — les opérations en aval
+    (`median`, `mean`, `std`, `mode`) supposent des dtypes numériques.
+    Cette étape garantit que les chaînes parasites deviennent NaN avant
+    d'arriver dans `manage_duplicates` ou `detect_outliers`.
+    """
+    logger.info("Coercition des colonnes numériques (capteurs + failure)")
+    df = df.copy()
+    for col in [*NUMERIC_SENSOR_COLUMNS, "failure"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 def manage_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Supprime doublons stricts + résout conflits de timestamp (médiane + mode failure)."""
     logger.info("Gestion des doublons")
@@ -356,6 +372,8 @@ def complete_hourly_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     nb_created_rows = int(df["is_missing_timestamp"].sum())
     logger.info("Lignes créées pour compléter les timestamps : {}", nb_created_rows)
 
+    # Les lignes imputées par la reindexation horaire doivent porter un flag
+    # qualité dédié — pas "OK" — pour rester auditable.
     text_columns = [
         "quality_flag",
         "correction_details",
@@ -365,9 +383,16 @@ def complete_hourly_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         "nan_columns",
         "nan_correction_details",
     ]
+    imputed_mask = df["is_missing_timestamp"] == 1
     for col in text_columns:
         if col in df.columns:
-            df[col] = df[col].fillna("OK" if col == "quality_flag" else "")
+            if col == "quality_flag":
+                # quality_flag : OK pour les lignes originales, MISSING_TIMESTAMP_IMPUTED pour les imputées
+                df[col] = df[col].fillna("__PLACEHOLDER__")
+                df.loc[imputed_mask & (df[col] == "__PLACEHOLDER__"), col] = "MISSING_TIMESTAMP_IMPUTED"
+                df[col] = df[col].replace("__PLACEHOLDER__", "OK")
+            else:
+                df[col] = df[col].fillna("")
 
     flag_columns = [
         "is_outlier",
@@ -452,11 +477,30 @@ def correct_failure_nan(df: pd.DataFrame) -> pd.DataFrame:
     remaining_failure_nan = int(df["failure"].isna().sum())
     logger.info("NaN restants dans failure : {}", remaining_failure_nan)
 
-    if remaining_failure_nan == 0:
-        df["failure"] = df["failure"].astype(int)
-        logger.info("Colonne failure convertie en int")
-    else:
-        logger.warning("Conversion de failure en int impossible : des NaN restent présents")
+    # Fallback déterministe : tout NaN résiduel devient 0 (nominal) avec un
+    # flag qualité dédié, pour garantir une colonne castable en int en aval
+    # (`silver_to_gold` fait `df["failure"].astype(int).map(...)`).
+    if remaining_failure_nan > 0:
+        leftover = df[df["failure"].isna()].index
+        logger.warning(
+            "{} NaN résiduels dans failure -> défaut 0 + flag UNCERTAIN_FAILURE_DEFAULTED_TO_ZERO",
+            remaining_failure_nan,
+        )
+        for idx in leftover:
+            df.loc[idx, "failure"] = 0
+            df.loc[idx, "is_failure_nan_corrected"] = 1
+            _append_quality_flag(df, idx, "UNCERTAIN_FAILURE_DEFAULTED_TO_ZERO", replace_ok=True)
+            current_details = (
+                ""
+                if pd.isna(df.loc[idx, "failure_nan_correction_details"])
+                else str(df.loc[idx, "failure_nan_correction_details"])
+            )
+            df.loc[idx, "failure_nan_correction_details"] = (
+                current_details + "; fallback: NaN -> 0 (deterministic default)"
+            ).lstrip("; ")
+
+    df["failure"] = df["failure"].astype(int)
+    logger.info("Colonne failure convertie en int")
 
     return df
 
@@ -626,6 +670,7 @@ def transform_bronze_to_silver(df: pd.DataFrame) -> pd.DataFrame:
     df_silver = df.copy()
     df_silver = initialize_traceability_columns(df_silver)
     df_silver = convert_and_sort_timestamps(df_silver)
+    df_silver = coerce_numeric_columns(df_silver)
     df_silver = manage_duplicates(df_silver)
     df_silver = complete_hourly_timestamps(df_silver)
     df_silver = correct_failure_nan(df_silver)
