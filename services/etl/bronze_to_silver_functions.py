@@ -180,7 +180,11 @@ def validate_schema(df: pd.DataFrame) -> dict:
         if missing_timestamps > 0:
             report["problemes_valeurs"].append(f"timestamp: {missing_timestamps} valeur(s) manquante(s)")
 
+    # timestamp est déjà couvert par le bloc spécifique ci-dessus ; on l'exclut
+    # de la boucle générique pour ne pas dupliquer le message dans le rapport.
     for col in EXPECTED_SCHEMA:
+        if col == "timestamp":
+            continue
         if col in df.columns:
             nb_nan = df[col].isna().sum()
             if nb_nan > 0:
@@ -286,6 +290,10 @@ def manage_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("Lignes avant/après suppression des doublons stricts : {} -> {}", before_rows, len(df))
 
     duplicated_timestamps = df[df.duplicated(subset=["timestamp"], keep=False)]["timestamp"].unique()
+    # On exclut NaT : la comparaison `df["timestamp"] == NaT` est toujours False,
+    # donc `group.iloc[0]` planterait sur un groupe vide. Les NaT sont traités
+    # plus loin par `complete_hourly_timestamps()`.
+    duplicated_timestamps = [ts for ts in duplicated_timestamps if pd.notna(ts)]
     logger.info("Timestamps en conflit détectés : {}", len(duplicated_timestamps))
 
     resolved_rows = []
@@ -665,7 +673,14 @@ def transform_bronze_to_silver(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("Début transformation Bronze -> Silver")
     logger.info("Dimensions initiales : {} lignes, {} colonnes", df.shape[0], df.shape[1])
 
-    validate_schema(df)
+    # Mode strict : si des colonnes attendues manquent, on lève tôt avec un
+    # message clair. Sinon downstream (`manage_duplicates`, `detect_outliers`)
+    # produirait un KeyError cryptique 5 étapes plus loin.
+    report = validate_schema(df)
+    if report["colonnes_manquantes"]:
+        raise RuntimeError(
+            "Bronze schéma invalide — colonnes attendues manquantes : " f"{sorted(report['colonnes_manquantes'])}"
+        )
 
     df_silver = df.copy()
     df_silver = initialize_traceability_columns(df_silver)

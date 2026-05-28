@@ -70,6 +70,61 @@ class TestSchemaValidation:
         report = validate_schema(df)
         assert any("failure contient des valeurs non prévues" in p for p in report["problemes_valeurs"])
 
+    def test_no_duplicate_timestamp_missing_message(self) -> None:
+        """Si timestamp a 2 valeurs manquantes, le rapport ne doit le mentionner qu'1 fois."""
+        df = pd.DataFrame(
+            {
+                "timestamp": ["2026-01-01 00:00:00", None, None],
+                "failure": [0, 0, 0],
+                "consumption_kWh": [10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+            }
+        )
+        report = validate_schema(df)
+        ts_messages = [p for p in report["problemes_valeurs"] if p.startswith("timestamp:")]
+        # Exactement un message pour les timestamps manquants (pas de doublon entre les 2 boucles)
+        missing_messages = [p for p in ts_messages if "manquante" in p]
+        assert len(missing_messages) == 1
+
+    def test_raises_on_missing_required_columns(self) -> None:
+        """Mode strict : transform_bronze_to_silver lève si des colonnes attendues manquent."""
+        df = pd.DataFrame(
+            {
+                "timestamp": ["2026-01-01 00:00:00"],
+                "failure": [0],
+                # voltage, rpm, ... volontairement manquants
+            }
+        )
+        with pytest.raises(RuntimeError, match="colonnes attendues manquantes"):
+            transform_bronze_to_silver(df)
+
+
+class TestManageDuplicatesEdgeCases:
+    def test_handles_only_nat_timestamps(self) -> None:
+        """Tous les timestamps NaT après coercion -> manage_duplicates ne doit pas crash."""
+        df = pd.DataFrame(
+            {
+                "timestamp": [pd.NaT, pd.NaT, pd.NaT],
+                "consumption_kWh": [10.0, 11.0, 12.0],
+                "temperature_C": [50.0, 51.0, 52.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+                "failure": [0, 0, 0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        # Ne doit pas lever — les NaT sont filtrés des duplicated_timestamps
+        out = manage_duplicates(df)
+        assert isinstance(out, pd.DataFrame)
+
 
 class TestInitializeTraceabilityColumns:
     def test_adds_all_traceability_columns(self, sample_timeseries_bronze) -> None:
