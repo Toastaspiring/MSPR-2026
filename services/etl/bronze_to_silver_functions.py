@@ -849,6 +849,8 @@ def silver_to_gold(
     # S'assurer que timestamp est tz-aware UTC pour les jointures
     if df["timestamp"].dt.tz is None:
         df["timestamp"] = df["timestamp"].dt.tz_localize("UTC")
+    else:
+        df["timestamp"] = df["timestamp"].dt.tz_convert("UTC")
 
     # Rolling features par machine
     grouped = df.groupby("machine_id", group_keys=False, sort=False)
