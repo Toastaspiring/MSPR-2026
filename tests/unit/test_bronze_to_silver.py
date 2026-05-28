@@ -104,6 +104,67 @@ class TestSchemaValidation:
             transform_bronze_to_silver(df)
 
 
+class TestCoerceNumericColumns:
+    def test_invalid_failure_value_coerced_to_nan_with_flag(self) -> None:
+        """Une valeur `failure` hors {0,1,2} doit devenir NaN + porter le flag INVALID_FAILURE_VALUE."""
+        from etl.bronze_to_silver_functions import coerce_numeric_columns
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=3, freq="h"),
+                "failure": [0, 9, 1],  # 9 est invalide
+                "consumption_kWh": [10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = coerce_numeric_columns(df)
+        # La valeur 9 devient NaN
+        assert pd.isna(out.loc[1, "failure"])
+        assert out.loc[0, "failure"] == 0
+        assert out.loc[2, "failure"] == 1
+        # Le flag est posé sur la ligne touchée
+        assert "INVALID_FAILURE_VALUE" in str(out.loc[1, "quality_flag"])
+        # Les autres lignes restent OK
+        assert out.loc[0, "quality_flag"] == "OK"
+
+    def test_end_to_end_invalid_failure_routed_to_zero(self) -> None:
+        """Après le pipeline complet, une valeur invalide doit être à 0 avec le flag conservé."""
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=4, freq="h"),
+                "failure": [0, 9, 0, 0],
+                "consumption_kWh": [10.0, 10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0, 230.0],
+            }
+        )
+        out = transform_bronze_to_silver(df)
+        # Aucun NaN dans failure et toutes les valeurs sont dans {0, 1, 2}
+        assert out["failure"].isna().sum() == 0
+        assert set(out["failure"].unique()).issubset({0, 1, 2})
+        # La trace de l'invalidité initiale subsiste dans quality_flag
+        flags = " ".join(str(f) for f in out["quality_flag"])
+        assert "INVALID_FAILURE_VALUE" in flags
+
+
+class TestTimestampTimezone:
+    def test_timestamps_are_utc_aware_after_pipeline(self, sample_timeseries_bronze) -> None:
+        """Les timestamps doivent être tz-aware UTC après le pipeline (cohérence Postgres TIMESTAMPTZ)."""
+        out = transform_bronze_to_silver(sample_timeseries_bronze)
+        assert out["timestamp"].dt.tz is not None
+        assert str(out["timestamp"].dt.tz) == "UTC"
+
+
 class TestManageDuplicatesEdgeCases:
     def test_handles_only_nat_timestamps(self) -> None:
         """Tous les timestamps NaT après coercion -> manage_duplicates ne doit pas crash."""

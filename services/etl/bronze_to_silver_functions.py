@@ -252,10 +252,18 @@ def initialize_traceability_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def convert_and_sort_timestamps(df: pd.DataFrame) -> pd.DataFrame:
-    """Convertit la colonne timestamp en datetime puis trie le DataFrame."""
-    logger.info("Conversion et tri des timestamps")
+    """Convertit la colonne timestamp en datetime UTC tz-aware puis trie.
+
+    `utc=True` est explicite pour rester cohérent avec :
+      - le pipeline interventions (`interventions_bronze_to_silver`)
+      - les jointures `merge_asof` dans `silver_to_gold`
+      - le typage Postgres `TIMESTAMPTZ`
+    Sans cela, on aurait des timestamps tz-naïfs côté capteurs et tz-aware
+    ailleurs, avec des erreurs de jointure ou d'insertion silencieuses.
+    """
+    logger.info("Conversion et tri des timestamps (UTC tz-aware)")
     df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
     df = df.sort_values("timestamp").reset_index(drop=True)
     return df
 
@@ -267,12 +275,32 @@ def coerce_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     (`median`, `mean`, `std`, `mode`) supposent des dtypes numériques.
     Cette étape garantit que les chaînes parasites deviennent NaN avant
     d'arriver dans `manage_duplicates` ou `detect_outliers`.
+
+    Cas particulier `failure` : les valeurs hors {0, 1, 2} (ex: 9, -1)
+    sont remontées par `validate_schema` mais doivent aussi être nettoyées
+    ici, sinon `astype(int)` les laissera passer et `FAILURE_LABEL.get()`
+    retournera None → biais d'entraînement. On les bascule en NaN avec un
+    flag dédié pour que `correct_failure_nan` les route via son fallback.
     """
     logger.info("Coercition des colonnes numériques (capteurs + failure)")
     df = df.copy()
     for col in [*NUMERIC_SENSOR_COLUMNS, "failure"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Filtrer les valeurs `failure` hors set valide
+    if "failure" in df.columns:
+        valid_mask = df["failure"].isin([0, 1, 2]) | df["failure"].isna()
+        invalid_indices = df[~valid_mask].index
+        if len(invalid_indices) > 0:
+            logger.warning(
+                "{} valeur(s) `failure` hors {{0,1,2}} -> NaN + flag INVALID_FAILURE_VALUE",
+                len(invalid_indices),
+            )
+            for idx in invalid_indices:
+                _append_quality_flag(df, idx, "INVALID_FAILURE_VALUE", replace_ok=True)
+            df.loc[invalid_indices, "failure"] = np.nan
+
     return df
 
 
