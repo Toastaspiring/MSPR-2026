@@ -86,9 +86,7 @@ def _ingest_timeseries(bronze_dir: Path) -> pd.DataFrame:
         if df_bronze.empty:
             continue
         try:
-            silver = transform_bronze_to_silver_with_context(
-                df_bronze, machine_id, target_cycle
-            )
+            silver = transform_bronze_to_silver_with_context(df_bronze, machine_id, target_cycle)
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "Erreur de transformation {} : machine={} target_cycle={}h : {}",
