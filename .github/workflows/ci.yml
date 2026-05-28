@@ -8,7 +8,7 @@ on:
   push:
     branches: [main, develop, "MSPR-*"]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, "MSPR-*"]
 
 env:
   PYTHON_VERSION: "3.11"

@@ -1,0 +1,7 @@
+# =============================================================================
+# CODEOWNERS — utilisé par la branch protection pour exiger une review
+# explicite du propriétaire du projet avant tout merge.
+# =============================================================================
+
+# Tout le repo : @Toastaspiring doit reviewer
+*       @Toastaspiring
