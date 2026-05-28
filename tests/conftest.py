@@ -40,8 +40,14 @@ def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     import importlib
 
     import common.config  # noqa: WPS433
+    import common.logger  # noqa: WPS433
 
     importlib.reload(common.config)
+    # IMPORTANT : recharger aussi common.logger pour que sa référence interne
+    # à `settings` pointe vers l'instance fraîchement rechargée (sinon
+    # `setup_logger()` continue d'utiliser les chemins par défaut /logs,
+    # /models, ... qui ne sont pas writable sur la CI).
+    importlib.reload(common.logger)
     return tmp_path
 
 
