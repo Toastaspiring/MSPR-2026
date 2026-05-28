@@ -110,7 +110,9 @@ def _ingest_interventions(bronze_dir: Path) -> pd.DataFrame:
             log.warning("Nom de fichier d'intervention non reconnu : {}", f.name)
             continue
         try:
-            df_bronze = pd.read_csv(f)
+            # On réutilise le même loader que pour les séries — logging
+            # uniforme et future validation/encodage centralisés.
+            df_bronze = load_bronze_csv(f)
         except Exception as exc:  # noqa: BLE001
             log.error("Erreur de lecture {} : {}", f.name, exc)
             continue

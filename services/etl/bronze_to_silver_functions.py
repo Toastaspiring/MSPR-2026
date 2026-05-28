@@ -30,7 +30,11 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+
+# Utilise le logger central du projet (`common.logger.logger`) au lieu d'importer
+# loguru directement, pour bénéficier de la configuration uniforme (rotation,
+# format JSON, sortie fichier) appliquée par `setup_logger()` côté services.
+from common.logger import logger
 
 EXPECTED_SCHEMA: Dict[str, str] = {
     "timestamp": "datetime",
@@ -326,6 +330,11 @@ def manage_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
     resolved_rows = []
 
+    # Cap sur la longueur de la sérialisation des valeurs originales pour
+    # éviter de gonfler `duplicate_correction_details` (et donc les Parquet
+    # + les logs) quand un timestamp a beaucoup de doublons.
+    _MAX_VALUES_IN_DETAILS = 5
+
     for ts in duplicated_timestamps:
         group = df[df["timestamp"] == ts].copy()
         resolved_row = group.iloc[0].copy()
@@ -335,7 +344,16 @@ def manage_duplicates(df: pd.DataFrame) -> pd.DataFrame:
             original_values = group[col].tolist()
             median_value = group[col].median(skipna=True)
             resolved_row[col] = median_value
-            details.append(f"{col}: values={original_values} -> median={median_value}")
+            # Tronque la liste sérialisée : on garde les N premières valeurs +
+            # un récapitulatif (count) pour rester auditable sans exploser la
+            # taille des artefacts.
+            shown = original_values[:_MAX_VALUES_IN_DETAILS]
+            suffix = (
+                f", ... +{len(original_values) - _MAX_VALUES_IN_DETAILS} more"
+                if len(original_values) > _MAX_VALUES_IN_DETAILS
+                else ""
+            )
+            details.append(f"{col}: values={shown}{suffix} (n={len(original_values)}) -> median={median_value}")
 
         failure_values = group["failure"].dropna()
 
@@ -500,7 +518,8 @@ def correct_failure_nan(df: pd.DataFrame) -> pd.DataFrame:
                 )
 
             df.loc[idx, "failure_nan_correction_details"] = details
-            logger.info("failure NaN corrigé à l'index {} : {}", idx, details)
+            # Log par index en DEBUG pour ne pas saturer les logs sur de longues séries.
+            logger.debug("failure NaN corrigé à l'index {} : {}", idx, details)
         else:
             _append_quality_flag(df, idx, "UNCERTAIN_FAILURE_NAN", replace_ok=True)
             df.loc[idx, "failure_nan_correction_details"] = (
@@ -642,7 +661,8 @@ def correct_numeric_nan(df: pd.DataFrame) -> pd.DataFrame:
                 "" if pd.isna(df.loc[idx, "nan_correction_details"]) else str(df.loc[idx, "nan_correction_details"])
             )
             df.loc[idx, "nan_correction_details"] = current_details + f"{col}: NaN -> {median_neighbors:.4f}; "
-            logger.info("{} NaN corrigé à l'index {} -> {:.4f}", col, idx, median_neighbors)
+            # Log par index en DEBUG (peut générer des milliers d'entrées sur séries longues).
+            logger.debug("{} NaN corrigé à l'index {} -> {:.4f}", col, idx, median_neighbors)
 
     df["nan_columns"] = df["nan_columns"].fillna("").str.rstrip(", ")
     df["nan_correction_details"] = df["nan_correction_details"].fillna("").str.rstrip("; ")
@@ -688,7 +708,8 @@ def correct_outliers(df: pd.DataFrame) -> pd.DataFrame:
                 "" if pd.isna(df.loc[idx, "correction_details"]) else str(df.loc[idx, "correction_details"])
             )
             df.loc[idx, "correction_details"] = current_details + f"{col}: {old_value:.4f} -> {new_value:.4f}; "
-            logger.info("{} outlier corrigé à l'index {} : {:.4f} -> {:.4f}", col, idx, old_value, new_value)
+            # Log par index en DEBUG (cf. correct_numeric_nan).
+            logger.debug("{} outlier corrigé à l'index {} : {:.4f} -> {:.4f}", col, idx, old_value, new_value)
 
     df["outlier_columns"] = df["outlier_columns"].fillna("").str.rstrip(", ")
     df["correction_details"] = df["correction_details"].fillna("").str.rstrip("; ")
