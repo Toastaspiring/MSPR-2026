@@ -58,13 +58,16 @@ psql:
 	docker compose exec postgres psql -U $$(grep '^POSTGRES_USER' .env | cut -d= -f2) -d $$(grep '^POSTGRES_DB' .env | cut -d= -f2)
 
 test:
+	pip install -q -r tests/requirements.txt
 	PYTHONPATH=services pytest tests/ --cov=services --cov-report=term-missing
 
 lint:
+	pip install -q -r tests/requirements.txt
 	flake8 services tests
 	black --check --line-length=120 services tests
 
 format:
+	pip install -q -r tests/requirements.txt
 	black --line-length=120 services tests
 
 k8s-edge:

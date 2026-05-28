@@ -33,7 +33,7 @@ jobs:
       - name: Installer les outils qualité
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black
+          pip install -r tests/requirements.txt
 
       - name: flake8 (style + erreurs)
         run: flake8 services tests --max-line-length=120 --extend-ignore=E203,W503
@@ -59,7 +59,7 @@ jobs:
       - name: Installer les dépendances de test
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov
+          pip install -r tests/requirements.txt
           pip install -r services/etl/requirements.txt
           pip install -r services/trainer/requirements.txt
           pip install -r services/api/requirements.txt
