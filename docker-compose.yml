@@ -1,0 +1,194 @@
+# =============================================================================
+# MECHA — Solution IA Maintenance Prédictive — Niveau 1 (Docker Compose)
+# Pipeline : Bronze (CSV) → ETL → Silver/Gold Parquet + Postgres → Trainer →
+#            modèles → API → Postgres (predictions) + Prometheus → Grafana
+# =============================================================================
+name: mecha
+
+services:
+  # -------------------------------------------------------------------------
+  # Postgres — datastore opérationnel (séries, interventions, prédictions)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: mecha-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mecha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mecha_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-mecha}
+    networks:
+      - mecha-net
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./services/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mecha} -d ${POSTGRES_DB:-mecha}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------------------
+  # ETL — Bronze → Silver/Gold (Parquet) + alimentation Postgres
+  # -------------------------------------------------------------------------
+  etl:
+    build:
+      context: .
+      dockerfile: services/etl/Dockerfile
+    image: ghcr.io/mecha/etl:${IMAGE_TAG:-latest}
+    container_name: mecha-etl
+    restart: "no"
+    env_file: .env
+    networks:
+      - mecha-net
+    volumes:
+      - ./data/bronze:/data/bronze:ro   # bind-mount du CSV fourni par MECHA
+      - silver-data:/data/silver
+      - gold-data:/data/gold
+      - logs-store:/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # Trainer — entraînement Random Forest + GBRT + MLflow
+  # -------------------------------------------------------------------------
+  trainer:
+    build:
+      context: .
+      dockerfile: services/trainer/Dockerfile
+    image: ghcr.io/mecha/trainer:${IMAGE_TAG:-latest}
+    container_name: mecha-trainer
+    restart: "no"
+    env_file: .env
+    networks:
+      - mecha-net
+    volumes:
+      - gold-data:/data/gold:ro
+      - models-store:/models
+      - logs-store:/logs
+
+  # -------------------------------------------------------------------------
+  # API FastAPI — prédictions + écriture Postgres + métriques Prometheus
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: ghcr.io/mecha/api:${IMAGE_TAG:-latest}
+    container_name: mecha-api
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - mecha-net
+    volumes:
+      - models-store:/models:ro
+      - logs-store:/logs
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # -------------------------------------------------------------------------
+  # Prometheus — scrape l'API toutes les 15 s
+  # -------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: mecha-prometheus
+    restart: unless-stopped
+    networks:
+      - mecha-net
+    volumes:
+      - ./services/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    expose:
+      - "9090"
+    depends_on:
+      - api
+
+  # -------------------------------------------------------------------------
+  # Grafana — SEUL service exposé au host (port 3000)
+  # Dashboards provisionnés + datasources Postgres + Prometheus
+  # -------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: mecha-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-mecha_change_me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: ""
+      # Pour que la datasource Postgres provisionnée puisse interpoler
+      # les variables d'environnement (user/password/db) :
+      POSTGRES_USER: ${POSTGRES_USER:-mecha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mecha_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-mecha}
+    networks:
+      - mecha-net
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./services/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./services/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+
+  # -------------------------------------------------------------------------
+  # Scheduler — déclenche etl + trainer aux fréquences configurées
+  # -------------------------------------------------------------------------
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    image: ghcr.io/mecha/scheduler:${IMAGE_TAG:-latest}
+    container_name: mecha-scheduler
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ETL_SERVICE_NAME: mecha-etl
+      TRAINER_SERVICE_NAME: mecha-trainer
+      COMPOSE_PROJECT_NAME: mecha
+    networks:
+      - mecha-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - logs-store:/logs
+
+# =============================================================================
+# Réseau interne — bridge isolé (cf. section 3.3 de l'archi)
+# =============================================================================
+networks:
+  mecha-net:
+    driver: bridge
+    name: mecha-net
+
+# =============================================================================
+# Volumes nommés persistants
+# =============================================================================
+volumes:
+  silver-data:        { name: mecha-silver-data }
+  gold-data:          { name: mecha-gold-data }
+  models-store:       { name: mecha-models-store }
+  logs-store:         { name: mecha-logs-store }
+  postgres-data:      { name: mecha-postgres-data }
+  prometheus-data:    { name: mecha-prometheus-data }
+  grafana-data:       { name: mecha-grafana-data }

@@ -1,0 +1,29 @@
+# =============================================================================
+# Datasources Grafana — provisionnés au démarrage (volume mounted en read-only)
+# Documentation : https://grafana.com/docs/grafana/latest/administration/provisioning/
+# =============================================================================
+apiVersion: 1
+
+datasources:
+  # ---- PostgreSQL : prédictions, séries Silver, interventions -------------
+  - name: MECHA-Postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    isDefault: true
+    editable: false
+
+  # ---- Prometheus : métriques /metrics scrapées sur l'API ----------------
+  - name: MECHA-Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    editable: false

@@ -1,0 +1,23 @@
+# =============================================================================
+# Configuration outils qualité (black, flake8 partiel via setup.cfg)
+# Cf. section 5.2 — Lint & qualité.
+# =============================================================================
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+include = '\.pyi?$'
+
+[tool.coverage.run]
+source = ["services"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true

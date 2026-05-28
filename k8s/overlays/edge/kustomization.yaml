@@ -1,0 +1,53 @@
+# =============================================================================
+# Overlay EDGE — 1 cluster par usine (section 6.2)
+# Charge réduite : 1 réplique d'API, HPA limité, trainer désactivé
+# (réentraînement centralisé). Postgres + Grafana embarqués pour la
+# continuité de service en cas de perte de connectivité.
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mecha-edge
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: mecha-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: production
+      - op: replace
+        path: /data/APP_SITE_ID
+        value: edge-default
+
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+
+  # Le retraining est centralisé — suspendre le CronJob côté edge.
+  - target:
+      kind: CronJob
+      name: trainer
+    patch: |-
+      - op: add
+        path: /spec/suspend
+        value: true

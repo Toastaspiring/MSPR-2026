@@ -1,0 +1,90 @@
+# =============================================================================
+# Overlay DOCKER-DESKTOP — démo locale sur le cluster Docker Desktop K8s.
+# Diffère du Niveau 2 (K3s industriel) sur 3 points :
+#   1. StorageClass : `hostpath` (Docker Desktop) au lieu de `local-path` (K3s)
+#   2. imagePullPolicy: Never — on utilise les images Docker locales
+#   3. Bronze : hostPath bind-mount vers data/bronze pour les vraies CSV MECHA
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mecha-local
+
+resources:
+  - ../../base
+  - bronze-bindmount.yaml   # PV hostpath pour le dossier data/bronze local
+
+patches:
+  # Réécrit le storageClassName de tous les PVC du base : `hostpath` est la
+  # StorageClass par défaut de Docker Desktop.
+  - target:
+      kind: PersistentVolumeClaim
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: hostpath
+
+  # Bronze : on bascule ce PVC précis vers `hostpath-bronze` (cf. PV
+  # `mecha-bronze-hostpath`) pour exposer data/bronze du repo.
+  - target:
+      kind: PersistentVolumeClaim
+      name: bronze-data
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: hostpath-bronze
+
+  # Images locales — pas de pull depuis ghcr.io
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: CronJob
+    patch: |-
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+
+  # ConfigMap — env local
+  - target:
+      kind: ConfigMap
+      name: mecha-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: local
+      - op: replace
+        path: /data/APP_SITE_ID
+        value: docker-desktop
+
+  # API : 1 réplique pour ressources modestes
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+
+  # Trainer : suspendu (on le déclenche manuellement avec `kubectl create job`)
+  - target:
+      kind: CronJob
+      name: trainer
+    patch: |-
+      - op: add
+        path: /spec/suspend
+        value: true

@@ -1,0 +1,73 @@
+# =============================================================================
+# CronJob ETL — pipeline Bronze → Silver → Gold + Postgres
+# (section 6.3 — équivalent K8s du service `scheduler` Docker Compose)
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etl
+  labels:
+    app.kubernetes.io/name: etl
+    app.kubernetes.io/component: pipeline
+spec:
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: etl
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            fsGroup: 1001
+          containers:
+            - name: etl
+              image: ghcr.io/mecha/etl:latest
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - configMapRef:
+                    name: mecha-config
+                - secretRef:
+                    name: mecha-postgres-secret
+              volumeMounts:
+                - name: bronze
+                  mountPath: /data/bronze
+                - name: silver
+                  mountPath: /data/silver
+                - name: gold
+                  mountPath: /data/gold
+                - name: logs
+                  mountPath: /logs
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "2000m"
+                  memory: "2Gi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+          volumes:
+            - name: bronze
+              persistentVolumeClaim:
+                claimName: bronze-data
+            - name: silver
+              persistentVolumeClaim:
+                claimName: silver-data
+            - name: gold
+              persistentVolumeClaim:
+                claimName: gold-data
+            - name: logs
+              persistentVolumeClaim:
+                claimName: logs-store

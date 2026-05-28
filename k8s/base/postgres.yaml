@@ -1,0 +1,179 @@
+# =============================================================================
+# Postgres — datastore opérationnel pour Grafana (Niveau 2 K3s)
+# Pour la production : envisager un opérateur (Zalando, CloudNativePG) ;
+# ce manifeste est volontairement simple pour une démo / un site edge.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  01_schema.sql: |
+    -- Schéma chargé au premier démarrage du conteneur Postgres
+    -- (voir aussi services/postgres/init/01_schema.sql).
+    CREATE TABLE IF NOT EXISTS sensor_data (
+        machine_id INTEGER NOT NULL,
+        target_cycle INTEGER NOT NULL,
+        "timestamp" TIMESTAMPTZ NOT NULL,
+        "consumption_kWh" DOUBLE PRECISION,
+        "temperature_C" DOUBLE PRECISION,
+        vibration DOUBLE PRECISION,
+        pressure DOUBLE PRECISION,
+        cycle_duration DOUBLE PRECISION,
+        rpm DOUBLE PRECISION,
+        voltage DOUBLE PRECISION,
+        failure INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_sensor_data_machine_ts ON sensor_data (machine_id, "timestamp" DESC);
+
+    CREATE TABLE IF NOT EXISTS interventions (
+        machine_id INTEGER NOT NULL,
+        "timestamp" TIMESTAMPTZ NOT NULL,
+        failure_type TEXT NOT NULL,
+        temperature DOUBLE PRECISION,
+        rpm DOUBLE PRECISION,
+        vibration DOUBLE PRECISION,
+        pressure DOUBLE PRECISION
+    );
+    CREATE INDEX IF NOT EXISTS idx_interventions_machine_ts ON interventions (machine_id, "timestamp" DESC);
+
+    CREATE TABLE IF NOT EXISTS feature_snapshot (
+        machine_id INTEGER NOT NULL,
+        target_cycle INTEGER NOT NULL,
+        "timestamp" TIMESTAMPTZ NOT NULL,
+        "consumption_kWh" DOUBLE PRECISION,
+        "temperature_C" DOUBLE PRECISION,
+        vibration DOUBLE PRECISION,
+        pressure DOUBLE PRECISION,
+        cycle_duration DOUBLE PRECISION,
+        rpm DOUBLE PRECISION,
+        voltage DOUBLE PRECISION,
+        failure INTEGER,
+        "temperature_C_roll_mean_10" DOUBLE PRECISION,
+        "temperature_C_roll_std_10" DOUBLE PRECISION,
+        "temperature_C_delta" DOUBLE PRECISION,
+        vibration_roll_mean_10 DOUBLE PRECISION,
+        vibration_roll_std_10 DOUBLE PRECISION,
+        vibration_delta DOUBLE PRECISION,
+        pressure_roll_mean_10 DOUBLE PRECISION,
+        pressure_roll_std_10 DOUBLE PRECISION,
+        pressure_delta DOUBLE PRECISION,
+        load_proxy DOUBLE PRECISION,
+        energy_per_cycle DOUBLE PRECISION,
+        hours_since_last_intervention DOUBLE PRECISION,
+        failure_type TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS predictions (
+        id BIGSERIAL PRIMARY KEY,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        machine_id INTEGER NOT NULL,
+        model_version TEXT NOT NULL,
+        threshold DOUBLE PRECISION NOT NULL,
+        failure_probability DOUBLE PRECISION NOT NULL,
+        predicted_failure_type TEXT NOT NULL,
+        predicted_rul_hours DOUBLE PRECISION NOT NULL,
+        alert_level TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_predictions_machine_time ON predictions (machine_id, recorded_at DESC);
+
+    CREATE OR REPLACE VIEW v_last_prediction_per_machine AS
+    SELECT DISTINCT ON (machine_id)
+        machine_id, recorded_at, model_version, failure_probability,
+        predicted_failure_type, predicted_rul_hours, alert_level
+    FROM predictions
+    ORDER BY machine_id, recorded_at DESC;
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: pg
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: mecha-postgres-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: init
+          configMap:
+            name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+# Secret contenant les credentials Postgres + DSN composé.
+# En production : remplacer par sealed-secrets ou Vault.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mecha-postgres-secret
+type: Opaque
+stringData:
+  POSTGRES_USER: mecha
+  POSTGRES_PASSWORD: mecha_change_me
+  POSTGRES_DB: mecha
+  POSTGRES_DSN: postgresql+psycopg2://mecha:mecha_change_me@postgres:5432/mecha

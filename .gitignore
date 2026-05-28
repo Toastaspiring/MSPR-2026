@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env_local/
+ENV/
+
+# Environment & secrets (CRITICAL — never commit credentials)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+k8s/overlays/*/secrets/
+
+# Données (RGPD — aucune donnée réelle versionnée)
+data/bronze/*
+data/silver/*
+data/gold/*
+!data/bronze/.gitkeep
+!data/silver/.gitkeep
+!data/gold/.gitkeep
+
+# Modèles ML sérialisés (binaires lourds, hors Git LFS)
+models/*.pkl
+models/*.joblib
+models/*.onnx
+!models/.gitkeep
+
+# Logs horodatés
+logs/*
+!logs/.gitkeep
+*.log
+
+# Tests & qualité de code
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Docker / Kubernetes locaux
+docker-compose.override.yml
+.kube/
+kubeconfig
+
+# Artefacts du document source
+unpacked/
+MECHA_text.txt
+*.tmp.docx

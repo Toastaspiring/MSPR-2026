@@ -1,0 +1,26 @@
+# =============================================================================
+# Surcharge locale — copier en docker-compose.override.yml
+# Utile pour le développement : bind-mount du code source, exposition
+# directe de l'API et de Postgres.
+# =============================================================================
+services:
+  api:
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/common:/app/common:ro
+      - ./services/api:/app/api:ro
+
+  etl:
+    volumes:
+      - ./services/common:/app/common:ro
+      - ./services/etl:/app/etl:ro
+
+  trainer:
+    volumes:
+      - ./services/common:/app/common:ro
+      - ./services/trainer:/app/trainer:ro
+
+  postgres:
+    ports:
+      - "5432:5432"

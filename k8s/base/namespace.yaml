@@ -1,0 +1,12 @@
+# =============================================================================
+# Namespace MECHA — isolation par environnement (cf. section 6.3)
+# Les overlays (edge/central) précisent le suffixe : mecha-dev, mecha-staging,
+# mecha-prod.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mecha
+  labels:
+    app.kubernetes.io/part-of: mecha
+    app.kubernetes.io/managed-by: kustomize

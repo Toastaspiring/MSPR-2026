@@ -1,0 +1,42 @@
+# =============================================================================
+# Kustomization de base — ressources communes aux overlays edge/central.
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - postgres.yaml
+  - prometheus.yaml
+  - api-deployment.yaml
+  - grafana.yaml
+  - etl-cronjob.yaml
+  - trainer-cronjob.yaml
+  - networkpolicy.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: mecha
+  app.kubernetes.io/managed-by: kustomize
+
+# Génère le ConfigMap contenant tous les dashboards Grafana JSON, monté
+# en read-only dans le pod Grafana.
+configMapGenerator:
+  - name: mecha-grafana-dashboards
+    files:
+      - ../../services/grafana/dashboards/01_overview.json
+      - ../../services/grafana/dashboards/02_sensors.json
+      - ../../services/grafana/dashboards/03_api_metrics.json
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: ghcr.io/mecha/etl
+    newTag: latest
+  - name: ghcr.io/mecha/trainer
+    newTag: latest
+  - name: ghcr.io/mecha/api
+    newTag: latest

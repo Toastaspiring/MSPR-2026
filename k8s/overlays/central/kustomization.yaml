@@ -1,0 +1,43 @@
+# =============================================================================
+# Overlay CENTRAL — 1 cluster siège / DSI (section 6.2)
+# Charge complète : 3 réplicas d'API, HPA actif, trainer actif, dashboards
+# Grafana global agrégeant les sites.
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mecha-central
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: mecha-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: production
+      - op: replace
+        path: /data/APP_SITE_ID
+        value: central
+
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10

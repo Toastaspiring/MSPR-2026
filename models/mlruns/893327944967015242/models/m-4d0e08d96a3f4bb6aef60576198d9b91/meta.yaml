@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/louis/Documents/SCHOOL/MSPR/models/mlruns/893327944967015242/models/m-4d0e08d96a3f4bb6aef60576198d9b91/artifacts
+creation_timestamp: 1779956845461
+experiment_id: '893327944967015242'
+last_updated_timestamp: 1779956860339
+model_id: m-4d0e08d96a3f4bb6aef60576198d9b91
+model_type: null
+name: classifier_type
+source_run_id: 635ad989d82545979f358cdb2ce3c02d
+status: 2
+status_message: null

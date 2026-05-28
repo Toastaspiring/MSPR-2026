@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/louis/Documents/SCHOOL/MSPR/models/mlruns/893327944967015242/models/m-ce63dd5b5b424418962475900ba14882/artifacts
+creation_timestamp: 1779956894463
+experiment_id: '893327944967015242'
+last_updated_timestamp: 1779956902057
+model_id: m-ce63dd5b5b424418962475900ba14882
+model_type: null
+name: regressor_rul
+source_run_id: 635ad989d82545979f358cdb2ce3c02d
+status: 2
+status_message: null

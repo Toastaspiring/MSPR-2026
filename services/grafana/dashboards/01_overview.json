@@ -1,0 +1,125 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "uid": "mecha-overview",
+  "title": "MECHA — Vue parc",
+  "tags": ["mecha", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-7d", "to": "now"},
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Machines surveillées",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{
+        "rawSql": "SELECT COUNT(DISTINCT machine_id) AS value FROM sensor_data;",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Alertes (24h)",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 1},
+            {"color": "red", "value": 10}
+          ]}
+        }
+      },
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) AS value FROM predictions WHERE alert_level <> 'nominal' AND recorded_at > NOW() - INTERVAL '24 hours';",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Interventions enregistrées",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) AS value FROM interventions;",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Prédictions cumulées",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) AS value FROM predictions;",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Modèle déployé",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "options": {"colorMode": "value", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^model_version$/"}},
+      "targets": [{
+        "rawSql": "SELECT model_version FROM predictions ORDER BY recorded_at DESC LIMIT 1;",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "table",
+      "title": "État courant par machine (dernière prédiction)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "alert_level"},
+            "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+              {"id": "mappings", "value": [
+                {"type": "value", "options": {"nominal": {"color": "green"}, "warning": {"color": "orange"}, "critical": {"color": "red"}}}
+              ]}
+            ]
+          }
+        ]
+      },
+      "targets": [{
+        "rawSql": "SELECT machine_id, recorded_at, failure_probability, predicted_failure_type, predicted_rul_hours, alert_level FROM v_last_prediction_per_machine ORDER BY machine_id;",
+        "format": "table"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Probabilité de défaillance — par machine",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT recorded_at AS time, machine_id::text AS metric, failure_probability AS value FROM predictions WHERE $__timeFilter(recorded_at) ORDER BY recorded_at;",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "barchart",
+      "title": "Types de défaillances historiques (interventions)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT failure_type AS metric, COUNT(*) AS value FROM interventions GROUP BY failure_type ORDER BY value DESC;",
+        "format": "table"
+      }]
+    }
+  ]
+}

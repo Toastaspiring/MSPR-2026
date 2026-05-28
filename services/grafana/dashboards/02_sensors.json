@@ -1,0 +1,91 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "uid": "mecha-sensors",
+  "title": "MECHA — Capteurs (séries temporelles)",
+  "tags": ["mecha", "sensors"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-30d", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "machine_id",
+        "type": "query",
+        "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+        "query": "SELECT DISTINCT machine_id FROM sensor_data ORDER BY machine_id;",
+        "current": {"text": "All", "value": "$__all"},
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Température (°C)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, \"temperature_C\" AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Vibration",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, vibration AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pression",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, pressure AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rotation (rpm)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, rpm AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Consommation (kWh)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, \"consumption_kWh\" AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Voltage (V)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, voltage AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# =============================================================================
+# Prometheus — scrape config pour MECHA
+# Configuration minimale : un seul job qui scrape l'API toutes les 15 s.
+# =============================================================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: mecha-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: api
+          app: mecha

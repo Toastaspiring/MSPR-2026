@@ -1,0 +1,8 @@
+artifact_location: file:///C:/Users/louis/Documents/SCHOOL/MSPR/models/mlruns/893327944967015242
+creation_time: 1779956794118
+experiment_id: '893327944967015242'
+last_update_time: 1779956794118
+lifecycle_stage: active
+name: mecha-failure-prediction
+trace_location: null
+workspace: default

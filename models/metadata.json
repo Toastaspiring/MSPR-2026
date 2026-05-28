@@ -1,0 +1,56 @@
+{
+  "trained_at": "20260528T082634Z",
+  "site_id": "local",
+  "feature_columns": [
+    "target_cycle",
+    "consumption_kWh",
+    "temperature_C",
+    "vibration",
+    "pressure",
+    "cycle_duration",
+    "rpm",
+    "voltage",
+    "temperature_C_roll_mean_10",
+    "temperature_C_roll_std_10",
+    "temperature_C_delta",
+    "vibration_roll_mean_10",
+    "vibration_roll_std_10",
+    "vibration_delta",
+    "pressure_roll_mean_10",
+    "pressure_roll_std_10",
+    "pressure_delta",
+    "load_proxy",
+    "energy_per_cycle",
+    "hours_since_last_intervention"
+  ],
+  "failure_metrics": {
+    "accuracy": 1.0,
+    "f1": 1.0,
+    "n_train": 11995,
+    "n_test": 2999,
+    "roc_auc": 0.9999999999999999
+  },
+  "failure_type_metrics": {
+    "accuracy": 0.9676558852950984,
+    "macro_f1": 0.8416089414387514,
+    "classes": [
+      "Breakage",
+      "Overheat",
+      "none"
+    ],
+    "n_train": 11995,
+    "n_test": 2999
+  },
+  "rul_metrics": {
+    "mae": 0.026231163513717327,
+    "n_train": 11995,
+    "n_test": 2999
+  },
+  "n_machines": 3,
+  "source_dataset": "gold_20260528T082229Z.parquet",
+  "type_classes": [
+    "Breakage",
+    "Overheat",
+    "none"
+  ]
+}

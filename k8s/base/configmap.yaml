@@ -1,0 +1,29 @@
+# =============================================================================
+# ConfigMap — paramètres applicatifs non sensibles (section 6.3)
+# Les valeurs sont injectées en variables d'environnement dans tous les pods.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mecha-config
+data:
+  BRONZE_DIR: "/data/bronze"
+  SILVER_DIR: "/data/silver"
+  GOLD_DIR: "/data/gold"
+  MODELS_DIR: "/models"
+  LOGS_DIR: "/logs"
+  FAILURE_ALERT_THRESHOLD: "0.75"
+  ETL_CRON_SCHEDULE: "0 */6 * * *"
+  RETRAIN_CRON_SCHEDULE: "0 2 * * 0"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_WORKERS: "2"
+  API_BASE_URL: "http://api:8000"
+  DASHBOARD_PORT: "8501"
+  DASHBOARD_TITLE: "MECHA — Maintenance Prédictive"
+  MLFLOW_TRACKING_URI: "file:///models/mlruns"
+  MLFLOW_EXPERIMENT_NAME: "mecha-failure-prediction"
+  APP_ENV: "production"
+  APP_SITE_ID: "default"

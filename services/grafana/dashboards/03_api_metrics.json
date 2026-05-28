@@ -1,0 +1,114 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "uid": "mecha-api-metrics",
+  "title": "MECHA — Santé de l'API",
+  "tags": ["mecha", "api"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requêtes /predict (taux 1m)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "targets": [{
+        "expr": "sum(rate(mecha_api_predict_requests_total[1m]))",
+        "legendFormat": "req/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Taux d'erreur (5m)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 0.01},
+            {"color": "red", "value": 0.05}
+          ]}
+        }
+      },
+      "targets": [{
+        "expr": "sum(rate(mecha_api_predict_requests_total{status=\"error\"}[5m])) / clamp_min(sum(rate(mecha_api_predict_requests_total[5m])), 1e-9)",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Latence /predict — p95 (5m)",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le) (rate(mecha_api_predict_latency_seconds_bucket[5m])))",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Alertes émises (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "targets": [{
+        "expr": "sum(increase(mecha_api_alerts_total{level!=\"nominal\"}[1h]))",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latence /predict — quantiles",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(mecha_api_predict_latency_seconds_bucket[1m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(mecha_api_predict_latency_seconds_bucket[1m])))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(mecha_api_predict_latency_seconds_bucket[1m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prédictions par machine (rate 1m)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "targets": [{
+        "expr": "rate(mecha_api_predictions_total[1m])",
+        "legendFormat": "machine {{machine_id}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Alertes par niveau",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "targets": [{
+        "expr": "rate(mecha_api_alerts_total[1m])",
+        "legendFormat": "{{level}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Alertes par type de défaillance",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "datasource": {"type": "prometheus", "uid": "MECHA-Prometheus"},
+      "targets": [{
+        "expr": "rate(mecha_api_alerts_by_type_total[1m])",
+        "legendFormat": "{{failure_type}}",
+        "refId": "A"
+      }]
+    }
+  ]
+}

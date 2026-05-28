@@ -1,0 +1,168 @@
+# =============================================================================
+# CI — MECHA (cf. section 5.2 de la documentation)
+# 3 étapes séquentielles : Lint & qualité → Tests → Build & Push image Docker
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "MSPR-*"]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/mecha
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Étape 1 — Lint & qualité (section 5.2 — flake8 + black --check)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint & qualité
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Installer les outils qualité
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+
+      - name: flake8 (style + erreurs)
+        run: flake8 services tests --max-line-length=120 --extend-ignore=E203,W503
+
+      - name: black --check (formatage)
+        run: black --check --line-length=120 services tests
+
+  # ---------------------------------------------------------------------------
+  # Étape 2 — Tests (pytest + couverture)
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Tests unitaires & intégration
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Installer les dépendances de test
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -r services/etl/requirements.txt
+          pip install -r services/trainer/requirements.txt
+          pip install -r services/api/requirements.txt
+
+      - name: Exécuter pytest avec couverture
+        env:
+          PYTHONPATH: ${{ github.workspace }}/services
+        run: |
+          pytest tests/ \
+            --cov=services \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --maxfail=5 \
+            -v
+
+      - name: Upload couverture (artifact)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Étape 3 — Build & Push images Docker (matrice par service)
+  # Tag : sha-${{ github.sha }} + :latest (sur main uniquement)
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: tests
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Postgres / Grafana / Prometheus utilisent des images officielles —
+        # on ne build que nos services applicatifs.
+        service: [etl, trainer, api, scheduler]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Métadonnées image (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build & (éventuellement) push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # ---------------------------------------------------------------------------
+  # Étape bonus — scan de sécurité Trivy (cf. section 7.2 — points de vigilance)
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Scan vulnérabilités (Trivy)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [etl, trainer, api, scheduler]
+    steps:
+      - name: Scan image avec Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:sha-${{ github.sha }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"   # informationnel — non bloquant pour le moment
+
+      - name: Upload résultats vers Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}

@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/louis/Documents/SCHOOL/MSPR/models/mlruns/893327944967015242/635ad989d82545979f358cdb2ce3c02d/artifacts
+end_time: 1779956902084
+entry_point_name: ''
+experiment_id: '893327944967015242'
+lifecycle_stage: active
+run_id: 635ad989d82545979f358cdb2ce3c02d
+run_name: train-20260528T082634Z
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1779956798069
+status: 3
+tags: []
+user_id: louis

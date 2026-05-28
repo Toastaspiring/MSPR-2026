@@ -1,0 +1,16 @@
+# =============================================================================
+# Provider de dashboards Grafana — charge tous les .json du dossier mounted
+# =============================================================================
+apiVersion: 1
+
+providers:
+  - name: MECHA
+    orgId: 1
+    folder: MECHA
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

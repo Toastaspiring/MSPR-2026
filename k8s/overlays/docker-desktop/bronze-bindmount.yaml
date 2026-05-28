@@ -1,0 +1,26 @@
+# =============================================================================
+# Bronze data — PV hostPath qui bind-mounte data/bronze du repo sur le node.
+# Le pré-binding via `claimRef` court-circuite le provisionnement dynamique
+# et n'a donc pas besoin d'une vraie StorageClass enregistrée.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mecha-bronze-hostpath
+  labels:
+    purpose: bronze-data
+spec:
+  capacity:
+    storage: 10Gi    # doit être >= au request du PVC (hostPath ne quota pas)
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hostpath-bronze
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    namespace: mecha-local
+    name: bronze-data
+  hostPath:
+    # Docker Desktop expose le filesystem hôte sous /run/desktop/mnt/host/
+    path: /run/desktop/mnt/host/c/Users/louis/Documents/SCHOOL/MSPR/data/bronze
+    type: Directory

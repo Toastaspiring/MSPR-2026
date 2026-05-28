@@ -1,0 +1,6 @@
+# Service Scheduler — orchestration cron des tâches batch
+# Cf. section 4.2 — APScheduler retenu pour la simplicité (alternative à Celery).
+apscheduler>=3.10
+loguru>=0.7
+croniter>=2.0
+docker>=7.0
