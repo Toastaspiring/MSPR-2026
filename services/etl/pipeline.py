@@ -85,7 +85,19 @@ def _ingest_timeseries(bronze_dir: Path) -> pd.DataFrame:
             continue
         if df_bronze.empty:
             continue
-        silver = transform_bronze_to_silver_with_context(df_bronze, machine_id, target_cycle)
+        try:
+            silver = transform_bronze_to_silver_with_context(
+                df_bronze, machine_id, target_cycle
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "Erreur de transformation {} : machine={} target_cycle={}h : {}",
+                f.name,
+                machine_id,
+                target_cycle,
+                exc,
+            )
+            continue
         log.info(
             "Silver série canonique : machine={} target_cycle={}h -> {} lignes",
             machine_id,
