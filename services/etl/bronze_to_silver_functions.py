@@ -691,6 +691,7 @@ def correct_outliers(df: pd.DataFrame) -> pd.DataFrame:
 
             neighbors_df = df.loc[neighbor_indices, [col, "is_outlier", "outlier_columns"]].copy()
             neighbors_df = neighbors_df[neighbors_df[col].notna()]
+            neighbors_df = neighbors_df[neighbors_df["is_outlier"] != 1]
             neighbors_df = neighbors_df[
                 ~neighbors_df["outlier_columns"].fillna("").astype(str).str.contains(col, regex=False)
             ]
