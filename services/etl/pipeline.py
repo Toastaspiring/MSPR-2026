@@ -1,15 +1,18 @@
-"""Orchestration du pipeline ETL Bronze → Silver → Gold pour MECHA.
+"""Orchestration du pipeline ETL Bronze -> Silver -> Gold pour MECHA.
 
 Bronze (CSV bruts mis à disposition par MECHA) :
-  - `machine_X_targetcycleN.csv`     → séries temporelles capteurs
-  - `intervention_data_machineN.csv` → log des défaillances réelles
+  - `machine_X_targetcycleN.csv`     -> séries temporelles capteurs
+  - `intervention_data_machineN.csv` -> log des défaillances réelles
 
 Silver / Gold : fichiers Parquet horodatés (compression snappy).
 
 Postgres (couche opérationnelle pour Grafana) :
-  - sensor_data        — séries Silver complètes
+  - sensor_data        — séries Silver complètes (avec traçabilité)
   - interventions      — log Silver des défaillances
-  - feature_snapshots  — dernier point Gold par machine (pour scoring rapide)
+  - feature_snapshot   — dernier point Gold par machine (scoring rapide)
+
+Logique de transformation Bronze -> Silver : version canonique du notebook
+MECHA (cf. `bronze_to_silver_functions.transform_bronze_to_silver`).
 """
 
 from __future__ import annotations
@@ -24,10 +27,11 @@ from common.logger import setup_logger
 
 from .bronze_to_silver_functions import (
     interventions_bronze_to_silver,
+    load_bronze_csv,
     parse_intervention_filename,
     parse_timeseries_filename,
     silver_to_gold,
-    timeseries_bronze_to_silver,
+    transform_bronze_to_silver_with_context,
 )
 from .warehouse import upsert_silver_to_postgres
 
@@ -37,16 +41,6 @@ log = setup_logger("etl")
 # ---------------------------------------------------------------------------
 # Helpers I/O
 # ---------------------------------------------------------------------------
-def _read_csv_safe(path: Path) -> pd.DataFrame | None:
-    try:
-        df = pd.read_csv(path)
-        log.info("Bronze : ingéré {} ({} lignes, {} colonnes)", path.name, len(df), len(df.columns))
-        return df
-    except Exception as exc:  # noqa: BLE001
-        log.error("Erreur de lecture {} : {}", path.name, exc)
-        return None
-
-
 def _write_layer(df: pd.DataFrame, output_dir: Path, layer: str) -> Path | None:
     if df.empty:
         log.warning("Couche {} : DataFrame vide, rien à écrire.", layer)
@@ -66,14 +60,10 @@ def _write_layer(df: pd.DataFrame, output_dir: Path, layer: str) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Ingestion Bronze
+# Ingestion Bronze -> Silver
 # ---------------------------------------------------------------------------
 def _ingest_timeseries(bronze_dir: Path) -> pd.DataFrame:
-    """Concatène toutes les séries temporelles `machine_*_targetcycle*.csv`.
-
-    Le `machine_id` et le `target_cycle` sont extraits du nom de fichier
-    via `parse_timeseries_filename`.
-    """
+    """Concatène toutes les séries `machine_*_targetcycle*.csv` après transform canonique."""
     files = sorted(bronze_dir.glob("machine_*_targetcycle*.csv"))
     if not files:
         log.warning("Aucun fichier de séries temporelles trouvé dans {}", bronze_dir)
@@ -86,12 +76,16 @@ def _ingest_timeseries(bronze_dir: Path) -> pd.DataFrame:
             log.warning("Nom de fichier non reconnu : {}", f.name)
             continue
         machine_id, target_cycle = meta
-        df = _read_csv_safe(f)
-        if df is None or df.empty:
+        try:
+            df_bronze = load_bronze_csv(f)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Erreur de lecture {} : {}", f.name, exc)
             continue
-        silver = timeseries_bronze_to_silver(df, machine_id, target_cycle)
+        if df_bronze.empty:
+            continue
+        silver = transform_bronze_to_silver_with_context(df_bronze, machine_id, target_cycle)
         log.info(
-            "Silver série : machine={} target_cycle={}h → {} lignes",
+            "Silver série canonique : machine={} target_cycle={}h -> {} lignes",
             machine_id,
             target_cycle,
             len(silver),
@@ -113,11 +107,15 @@ def _ingest_interventions(bronze_dir: Path) -> pd.DataFrame:
         if machine_id is None:
             log.warning("Nom de fichier d'intervention non reconnu : {}", f.name)
             continue
-        df = _read_csv_safe(f)
-        if df is None or df.empty:
+        try:
+            df_bronze = pd.read_csv(f)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Erreur de lecture {} : {}", f.name, exc)
             continue
-        silver = interventions_bronze_to_silver(df, machine_id)
-        log.info("Silver interventions : machine={} → {} lignes", machine_id, len(silver))
+        if df_bronze.empty:
+            continue
+        silver = interventions_bronze_to_silver(df_bronze, machine_id)
+        log.info("Silver interventions : machine={} -> {} lignes", machine_id, len(silver))
         frames.append(silver)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 

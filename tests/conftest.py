@@ -96,10 +96,11 @@ def sample_interventions_bronze() -> pd.DataFrame:
 
 @pytest.fixture
 def sample_silver(sample_timeseries_bronze) -> pd.DataFrame:
-    """Silver généré depuis le bronze (machine_id=1, target_cycle=30)."""
-    from etl.bronze_to_silver_functions import timeseries_bronze_to_silver
+    """Silver généré depuis le bronze (machine_id=1, target_cycle=30)
+    via le pipeline canonique du notebook MECHA."""
+    from etl.bronze_to_silver_functions import transform_bronze_to_silver_with_context
 
-    return timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
+    return transform_bronze_to_silver_with_context(sample_timeseries_bronze, machine_id=1, target_cycle=30)
 
 
 @pytest.fixture

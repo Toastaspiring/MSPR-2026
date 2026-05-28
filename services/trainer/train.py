@@ -68,13 +68,19 @@ def _latest_gold_dataset(gold_dir: Path) -> Path | None:
 
 
 def _prepare_dataset(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
-    """Renvoie X et 3 cibles : failure (bin), failure_type (multi), rul (heures)."""
+    """Renvoie X et 3 cibles : failure (binaire), failure_type (multi), rul (heures).
+
+    Schéma canonique du notebook : `failure` est ternaire (0/1/2).
+    Pour le classifier binaire on agrège : (failure > 0) => panne en cours.
+    Le label multi-classes `failure_type` reste textuel (none/Breakage/Overheat).
+    """
     missing = [c for c in FEATURE_COLUMNS if c not in df.columns]
     if missing:
         raise RuntimeError(f"Colonnes attendues manquantes dans Gold : {missing}")
 
     X = df[FEATURE_COLUMNS].astype(float).fillna(0.0)
-    y_failure = df["failure"].astype(int)
+    # `failure` 0/1/2 -> binaire (panne ou non)
+    y_failure = (df["failure"].astype(int) > 0).astype(int)
     y_failure_type = df.get("failure_type", pd.Series([NO_FAILURE_LABEL] * len(df))).fillna(NO_FAILURE_LABEL)
 
     # RUL = heures avant la PROCHAINE intervention (par machine). On le
