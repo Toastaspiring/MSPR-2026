@@ -40,8 +40,14 @@ def isolated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     import importlib
 
     import common.config  # noqa: WPS433
+    import common.logger  # noqa: WPS433
 
     importlib.reload(common.config)
+    # IMPORTANT : recharger aussi common.logger pour que sa référence interne
+    # à `settings` pointe vers l'instance fraîchement rechargée (sinon
+    # `setup_logger()` continue d'utiliser les chemins par défaut /logs,
+    # /models, ... qui ne sont pas writable sur la CI).
+    importlib.reload(common.logger)
     return tmp_path
 
 
@@ -96,10 +102,11 @@ def sample_interventions_bronze() -> pd.DataFrame:
 
 @pytest.fixture
 def sample_silver(sample_timeseries_bronze) -> pd.DataFrame:
-    """Silver généré depuis le bronze (machine_id=1, target_cycle=30)."""
-    from etl.bronze_to_silver_functions import timeseries_bronze_to_silver
+    """Silver généré depuis le bronze (machine_id=1, target_cycle=30)
+    via le pipeline canonique du notebook MECHA."""
+    from etl.bronze_to_silver_functions import transform_bronze_to_silver_with_context
 
-    return timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
+    return transform_bronze_to_silver_with_context(sample_timeseries_bronze, machine_id=1, target_cycle=30)
 
 
 @pytest.fixture

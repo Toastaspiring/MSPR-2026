@@ -16,7 +16,9 @@ from common.logger import setup_logger
 
 log = setup_logger("etl")
 
-# Colonnes que l'on stocke dans Postgres pour les séries Silver
+# Colonnes que l'on stocke dans Postgres pour les séries Silver.
+# Les 12 colonnes de traçabilité produites par le pipeline canonique ne sont
+# PAS chargées en BDD (audit-only) : on les conserve dans les Parquet Silver.
 _SENSOR_COLS = [
     "machine_id",
     "target_cycle",
@@ -29,6 +31,24 @@ _SENSOR_COLS = [
     "rpm",
     "voltage",
     "failure",
+]
+
+# Colonnes attendues côté `feature_snapshot` Postgres (cf. init SQL).
+_FEATURE_SNAPSHOT_COLS = [
+    *_SENSOR_COLS,
+    "temperature_C_roll_mean_10",
+    "temperature_C_roll_std_10",
+    "temperature_C_delta",
+    "vibration_roll_mean_10",
+    "vibration_roll_std_10",
+    "vibration_delta",
+    "pressure_roll_mean_10",
+    "pressure_roll_std_10",
+    "pressure_delta",
+    "load_proxy",
+    "energy_per_cycle",
+    "hours_since_last_intervention",
+    "failure_type",
 ]
 
 
@@ -75,10 +95,24 @@ def upsert_silver_to_postgres(
             ints.to_sql("interventions", conn, if_exists="append", index=False, method="multi", chunksize=5000)
         log.info("Postgres : interventions rechargée ({} lignes)", len(ints))
 
-    # 3) feature_snapshot : dernier point Gold par machine (pour scoring rapide)
+    # 3) feature_snapshot : dernier point Gold par machine (pour scoring rapide).
+    # On filtre les colonnes pour matcher exactement le schéma SQL (traçabilité ignorée).
     if df_gold is not None and not df_gold.empty:
         last = df_gold.sort_values("timestamp").groupby("machine_id").tail(1).reset_index(drop=True)
         last["timestamp"] = pd.to_datetime(last["timestamp"], utc=True)
+        # Garde-fou explicite : les colonnes NOT NULL côté Postgres doivent
+        # exister dans le DataFrame, sinon on lève AVANT le `to_sql` pour
+        # obtenir un message d'erreur clair (vs. erreur SQL cryptique).
+        required_cols = {"machine_id", "target_cycle", "timestamp"}
+        missing = required_cols - set(last.columns)
+        if missing:
+            raise RuntimeError(f"feature_snapshot : colonnes NOT NULL manquantes dans Gold : {sorted(missing)}")
+        # Sélection dans l'ordre exact défini ; les colonnes optionnelles
+        # absentes sont insérées en NaN.
+        for col in _FEATURE_SNAPSHOT_COLS:
+            if col not in last.columns:
+                last[col] = pd.NA
+        last = last[_FEATURE_SNAPSHOT_COLS]
         with engine.begin() as conn:
             conn.exec_driver_sql("TRUNCATE TABLE feature_snapshot")
             last.to_sql(

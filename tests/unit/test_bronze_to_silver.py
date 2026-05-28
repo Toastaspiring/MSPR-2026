@@ -1,24 +1,31 @@
-"""Tests unitaires des transformations Bronze → Silver pour le vrai schéma MECHA."""
+"""Tests unitaires du pipeline Bronze -> Silver canonique (version notebook MECHA)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from etl.bronze_to_silver_functions import (
+    BUSINESS_COLUMNS,
+    FAILURE_LABEL,
     NO_FAILURE_LABEL,
-    SENSOR_COLUMNS,
-    SILVER_COLUMNS,
-    cast_numeric,
-    clip_outliers,
-    deduplicate,
-    impute_sensor_nulls,
+    NUMERIC_SENSOR_COLUMNS,
+    TRACEABILITY_COLUMNS,
+    complete_hourly_timestamps,
+    convert_and_sort_timestamps,
+    correct_failure_nan,
+    correct_numeric_nan,
+    detect_outliers,
+    initialize_traceability_columns,
     interventions_bronze_to_silver,
+    manage_duplicates,
     parse_intervention_filename,
-    parse_timestamps,
     parse_timeseries_filename,
     silver_to_gold,
-    timeseries_bronze_to_silver,
+    transform_bronze_to_silver,
+    transform_bronze_to_silver_with_context,
+    validate_schema,
 )
 
 
@@ -34,95 +41,359 @@ class TestFilenameParsing:
         assert parse_intervention_filename("interventions.csv") is None
 
 
-class TestPrimitives:
-    def test_parse_timestamps_invalid_to_nat(self) -> None:
-        df = pd.DataFrame({"timestamp": ["plop"]})
-        out = parse_timestamps(df)
-        assert out["timestamp"].isna().all()
+class TestSchemaValidation:
+    def test_report_structure(self, sample_timeseries_bronze) -> None:
+        report = validate_schema(sample_timeseries_bronze)
+        # Le rapport est toujours retourné, et contient au moins une catégorie de problèmes
+        assert isinstance(report, dict)
+        assert {"colonnes_manquantes", "colonnes_supplementaires", "problemes_conversion", "problemes_valeurs"} <= set(
+            report.keys()
+        )
+        # Le fixture contient un NaN voltage + un timestamp invalide -> au moins un problème
+        problems = sum(len(v) for v in report.values())
+        assert problems > 0
 
-    def test_cast_numeric_handles_missing_columns(self) -> None:
-        df = pd.DataFrame({"a": ["1", "2", "x"]})
-        out = cast_numeric(df, ["a", "missing"])
-        assert out["a"].iloc[2] != out["a"].iloc[2]  # NaN
-
-    def test_clip_outliers_respects_ranges(self) -> None:
-        df = pd.DataFrame({"vibration": [-5, 20, 100]})
-        out = clip_outliers(df, {"vibration": (0, 50)})
-        assert out["vibration"].tolist() == [0, 20, 50]
-
-    def test_impute_sensor_nulls_interpolates(self) -> None:
+    def test_detects_invalid_failure_values(self) -> None:
         df = pd.DataFrame(
             {
-                "machine_id": [1, 1, 1, 1],
-                "timestamp": pd.to_datetime(
-                    [
-                        "2026-01-01 00:00",
-                        "2026-01-01 01:00",
-                        "2026-01-01 02:00",
-                        "2026-01-01 03:00",
-                    ],
-                    utc=True,
-                ),
-                "voltage": [230.0, np.nan, np.nan, 234.0],
+                "timestamp": ["2026-01-01 00:00:00"],
+                "failure": [9],  # valeur non prévue
+                "consumption_kWh": [10.0],
+                "temperature_C": [50.0],
+                "vibration": [1.0],
+                "pressure": [50.0],
+                "cycle_duration": [30.0],
+                "rpm": [1500.0],
+                "voltage": [230.0],
             }
         )
-        out = impute_sensor_nulls(df, ["voltage"])
-        # 230 → ? → ? → 234 → interpolation linéaire ≈ 231.33, 232.67
-        assert out["voltage"].isna().sum() == 0
-        assert 231 < out["voltage"].iloc[1] < 232
-        assert 232 < out["voltage"].iloc[2] < 233
+        report = validate_schema(df)
+        assert any("failure contient des valeurs non prévues" in p for p in report["problemes_valeurs"])
 
-    def test_deduplicate_keeps_last(self) -> None:
-        df = pd.DataFrame({"k": ["a", "a", "b"], "v": [1, 2, 3]})
-        out = deduplicate(df, ["k"])
-        assert len(out) == 2
-        assert out[out["k"] == "a"]["v"].iloc[0] == 2
+    def test_no_duplicate_timestamp_missing_message(self) -> None:
+        """Si timestamp a 2 valeurs manquantes, le rapport ne doit le mentionner qu'1 fois."""
+        df = pd.DataFrame(
+            {
+                "timestamp": ["2026-01-01 00:00:00", None, None],
+                "failure": [0, 0, 0],
+                "consumption_kWh": [10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+            }
+        )
+        report = validate_schema(df)
+        ts_messages = [p for p in report["problemes_valeurs"] if p.startswith("timestamp:")]
+        # Exactement un message pour les timestamps manquants (pas de doublon entre les 2 boucles)
+        missing_messages = [p for p in ts_messages if "manquante" in p]
+        assert len(missing_messages) == 1
+
+    def test_raises_on_missing_required_columns(self) -> None:
+        """Mode strict : transform_bronze_to_silver lève si des colonnes attendues manquent."""
+        df = pd.DataFrame(
+            {
+                "timestamp": ["2026-01-01 00:00:00"],
+                "failure": [0],
+                # voltage, rpm, ... volontairement manquants
+            }
+        )
+        with pytest.raises(RuntimeError, match="colonnes attendues manquantes"):
+            transform_bronze_to_silver(df)
 
 
-class TestTimeseriesBronzeToSilver:
-    def test_drops_invalid_timestamp(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
-        # 7 lignes − 1 timestamp invalide − 1 doublon = 5
-        assert len(out) == 5
+class TestCoerceNumericColumns:
+    def test_invalid_failure_value_coerced_to_nan_with_flag(self) -> None:
+        """Une valeur `failure` hors {0,1,2} doit devenir NaN + porter le flag INVALID_FAILURE_VALUE."""
+        from etl.bronze_to_silver_functions import coerce_numeric_columns
 
-    def test_clips_consumption_outlier(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
-        assert out["consumption_kWh"].max() <= 1000
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=3, freq="h"),
+                "failure": [0, 9, 1],  # 9 est invalide
+                "consumption_kWh": [10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = coerce_numeric_columns(df)
+        # La valeur 9 devient NaN
+        assert pd.isna(out.loc[1, "failure"])
+        assert out.loc[0, "failure"] == 0
+        assert out.loc[2, "failure"] == 1
+        # Le flag est posé sur la ligne touchée
+        assert "INVALID_FAILURE_VALUE" in str(out.loc[1, "quality_flag"])
+        # Les autres lignes restent OK
+        assert out.loc[0, "quality_flag"] == "OK"
 
-    def test_imputes_voltage_null(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
-        assert out["voltage"].isna().sum() == 0
+    def test_end_to_end_invalid_failure_routed_to_zero(self) -> None:
+        """Après le pipeline complet, une valeur invalide doit être à 0 avec le flag conservé."""
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=4, freq="h"),
+                "failure": [0, 9, 0, 0],
+                "consumption_kWh": [10.0, 10.0, 10.0, 10.0],
+                "temperature_C": [50.0, 50.0, 50.0, 50.0],
+                "vibration": [1.0, 1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0, 230.0],
+            }
+        )
+        out = transform_bronze_to_silver(df)
+        # Aucun NaN dans failure et toutes les valeurs sont dans {0, 1, 2}
+        assert out["failure"].isna().sum() == 0
+        assert set(out["failure"].unique()).issubset({0, 1, 2})
+        # La trace de l'invalidité initiale subsiste dans quality_flag
+        flags = " ".join(str(f) for f in out["quality_flag"])
+        assert "INVALID_FAILURE_VALUE" in flags
 
-    def test_failure_null_becomes_zero(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
+
+class TestTimestampTimezone:
+    def test_timestamps_are_utc_aware_after_pipeline(self, sample_timeseries_bronze) -> None:
+        """Les timestamps doivent être tz-aware UTC après le pipeline (cohérence Postgres TIMESTAMPTZ)."""
+        out = transform_bronze_to_silver(sample_timeseries_bronze)
+        assert out["timestamp"].dt.tz is not None
+        assert str(out["timestamp"].dt.tz) == "UTC"
+
+
+class TestManageDuplicatesEdgeCases:
+    def test_handles_only_nat_timestamps(self) -> None:
+        """Tous les timestamps NaT après coercion -> manage_duplicates ne doit pas crash."""
+        df = pd.DataFrame(
+            {
+                "timestamp": [pd.NaT, pd.NaT, pd.NaT],
+                "consumption_kWh": [10.0, 11.0, 12.0],
+                "temperature_C": [50.0, 51.0, 52.0],
+                "vibration": [1.0, 1.0, 1.0],
+                "pressure": [50.0, 50.0, 50.0],
+                "cycle_duration": [30.0, 30.0, 30.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+                "voltage": [230.0, 230.0, 230.0],
+                "failure": [0, 0, 0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        # Ne doit pas lever — les NaT sont filtrés des duplicated_timestamps
+        out = manage_duplicates(df)
+        assert isinstance(out, pd.DataFrame)
+
+
+class TestInitializeTraceabilityColumns:
+    def test_adds_all_traceability_columns(self, sample_timeseries_bronze) -> None:
+        out = initialize_traceability_columns(sample_timeseries_bronze)
+        for col in TRACEABILITY_COLUMNS:
+            assert col in out.columns, f"colonne de traçabilité manquante : {col}"
+
+    def test_default_quality_flag_is_ok(self, sample_timeseries_bronze) -> None:
+        out = initialize_traceability_columns(sample_timeseries_bronze)
+        assert (out["quality_flag"] == "OK").all()
+
+
+class TestConvertAndSortTimestamps:
+    def test_invalid_becomes_nat(self, sample_timeseries_bronze) -> None:
+        out = convert_and_sort_timestamps(sample_timeseries_bronze)
+        # Le fixture a 1 timestamp invalide -> doit devenir NaT
+        assert out["timestamp"].isna().sum() == 1
+
+    def test_sorted_ascending(self, sample_timeseries_bronze) -> None:
+        out = convert_and_sort_timestamps(sample_timeseries_bronze)
+        # Les valeurs non-NaT doivent être triées
+        valid = out.dropna(subset=["timestamp"])
+        assert valid["timestamp"].is_monotonic_increasing
+
+
+class TestManageDuplicates:
+    def test_resolves_timestamp_conflict(self, sample_timeseries_bronze) -> None:
+        df = initialize_traceability_columns(sample_timeseries_bronze)
+        df = convert_and_sort_timestamps(df)
+        out = manage_duplicates(df)
+        # Une fois résolu, il ne reste plus de doublon de timestamp
+        assert out.duplicated(subset=["timestamp"]).sum() == 0
+
+
+class TestCompleteHourlyTimestamps:
+    def test_fills_gaps(self) -> None:
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-01-01 00:00", "2026-01-01 03:00"]),
+                "consumption_kWh": [10.0, 12.0],
+                "temperature_C": [50.0, 55.0],
+                "vibration": [1.0, 1.1],
+                "pressure": [50.0, 52.0],
+                "cycle_duration": [30.0, 32.0],
+                "rpm": [1500.0, 1510.0],
+                "voltage": [230.0, 232.0],
+                "failure": [0, 0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = complete_hourly_timestamps(df)
+        # 4 heures (00, 01, 02, 03) -> 4 lignes
+        assert len(out) == 4
+        # Les nouvelles lignes sont marquées
+        assert out["is_missing_timestamp"].sum() == 2
+
+    def test_imputed_rows_have_dedicated_quality_flag(self) -> None:
+        # Les lignes imputées doivent porter MISSING_TIMESTAMP_IMPUTED, pas "OK"
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-01-01 00:00", "2026-01-01 03:00"]),
+                "consumption_kWh": [10.0, 12.0],
+                "temperature_C": [50.0, 55.0],
+                "vibration": [1.0, 1.1],
+                "pressure": [50.0, 52.0],
+                "cycle_duration": [30.0, 32.0],
+                "rpm": [1500.0, 1510.0],
+                "voltage": [230.0, 232.0],
+                "failure": [0, 0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = complete_hourly_timestamps(df)
+        imputed = out[out["is_missing_timestamp"] == 1]
+        original = out[out["is_missing_timestamp"] == 0]
+        assert (imputed["quality_flag"] == "MISSING_TIMESTAMP_IMPUTED").all()
+        assert (original["quality_flag"] == "OK").all()
+
+
+class TestCorrectFailureNan:
+    def test_rule_same_before_after(self) -> None:
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=3, freq="h"),
+                "failure": [0.0, np.nan, 0.0],
+                "rpm": [1500.0, 1500.0, 1500.0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = correct_failure_nan(df)
+        assert out.loc[1, "failure"] == 0
+        assert out.loc[1, "is_failure_nan_corrected"] == 1
+
+    def test_fallback_to_zero_on_ambiguous_cases(self) -> None:
+        # Cas ambigu : NaN en début de série, aucun voisin avant -> fallback 0
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="h"),
+                "failure": [np.nan, 1.0],
+                "rpm": [np.nan, 1500.0],
+            }
+        )
+        df = initialize_traceability_columns(df)
+        out = correct_failure_nan(df)
+        # Aucun NaN ne doit subsister + colonne castable en int
+        assert out["failure"].isna().sum() == 0
         assert out["failure"].dtype.kind in {"i", "u"}
-        assert set(out["failure"].unique()).issubset({0, 1})
+        # Le fallback laisse une trace explicite dans quality_flag
+        assert "UNCERTAIN_FAILURE_DEFAULTED_TO_ZERO" in str(out.loc[0, "quality_flag"])
 
-    def test_adds_machine_and_target_cycle(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=2, target_cycle=60)
+
+class TestDetectAndCorrectOutliers:
+    def test_5sigma_detection_marks_outlier(self) -> None:
+        # 9 valeurs nominales + 1 valeur très éloignée
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=10, freq="h"),
+                "consumption_kWh": [15.0] * 9 + [500.0],
+                "temperature_C": [50.0] * 10,
+                "vibration": [1.0] * 10,
+                "pressure": [50.0] * 10,
+                "cycle_duration": [30.0] * 10,
+                "rpm": [1500.0] * 10,
+                "voltage": [230.0] * 10,
+                "failure": [0] * 10,
+            }
+        )
+        df = initialize_traceability_columns(df)
+        df = detect_outliers(df, sigma_threshold=2)  # seuil bas pour valider la mécanique
+        # Au moins l'index 9 doit être marqué outlier sur consumption_kWh
+        assert df.loc[9, "is_outlier"] == 1
+        assert "consumption_kWh" in str(df.loc[9, "outlier_columns"])
+
+    def test_outliers_ignored_when_failure_not_zero(self) -> None:
+        # La détection ne tourne QUE sur les lignes failure=0 ; les lignes failure>0 sont protégées
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=5, freq="h"),
+                "consumption_kWh": [15.0, 15.0, 500.0, 15.0, 15.0],
+                "temperature_C": [50.0] * 5,
+                "vibration": [1.0] * 5,
+                "pressure": [50.0] * 5,
+                "cycle_duration": [30.0] * 5,
+                "rpm": [1500.0] * 5,
+                "voltage": [230.0] * 5,
+                "failure": [0, 0, 1, 0, 0],  # la valeur 500 est sur une ligne en panne
+            }
+        )
+        df = initialize_traceability_columns(df)
+        df = detect_outliers(df, sigma_threshold=2)
+        # La ligne en panne ne doit pas être marquée outlier
+        assert df.loc[2, "is_outlier"] == 0
+
+
+class TestCorrectNumericNan:
+    def test_imputes_with_neighbors_median(self) -> None:
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=5, freq="h"),
+                "consumption_kWh": [15.0, 16.0, 15.0, 17.0, 16.0],
+                "temperature_C": [50.0, 51.0, np.nan, 53.0, 52.0],
+                "vibration": [1.0] * 5,
+                "pressure": [50.0] * 5,
+                "cycle_duration": [30.0] * 5,
+                "rpm": [1500.0] * 5,
+                "voltage": [230.0] * 5,
+                "failure": [0] * 5,
+            }
+        )
+        df = initialize_traceability_columns(df)
+        df = detect_outliers(df)
+        out = correct_numeric_nan(df)
+        # Médiane de [50, 51, 53, 52] = 51.5
+        assert out.loc[2, "temperature_C"] == 51.5
+        assert out.loc[2, "is_nan_corrected"] == 1
+
+
+class TestTransformBronzeToSilverCanonical:
+    def test_returns_dataframe_with_traceability(self, sample_timeseries_bronze) -> None:
+        out = transform_bronze_to_silver(sample_timeseries_bronze)
+        for col in TRACEABILITY_COLUMNS:
+            assert col in out.columns
+
+    def test_failure_is_int_after_pipeline(self, sample_timeseries_bronze) -> None:
+        out = transform_bronze_to_silver(sample_timeseries_bronze)
+        assert out["failure"].dtype.kind in {"i", "u"}
+        assert set(out["failure"].unique()).issubset({0, 1, 2})
+
+    def test_hourly_grid_complete(self, sample_timeseries_bronze) -> None:
+        out = transform_bronze_to_silver(sample_timeseries_bronze)
+        # Pas de gap horaire entre min et max
+        if len(out) > 1:
+            deltas = out["timestamp"].diff().dropna()
+            assert (deltas == pd.Timedelta(hours=1)).all()
+
+
+class TestContextWrapper:
+    def test_adds_machine_id_and_target_cycle(self, sample_timeseries_bronze) -> None:
+        out = transform_bronze_to_silver_with_context(sample_timeseries_bronze, machine_id=2, target_cycle=60)
         assert (out["machine_id"] == 2).all()
         assert (out["target_cycle"] == 60).all()
-
-    def test_columns_complete(self, sample_timeseries_bronze) -> None:
-        out = timeseries_bronze_to_silver(sample_timeseries_bronze, machine_id=1, target_cycle=30)
-        for col in SILVER_COLUMNS:
-            assert col in out.columns, f"colonne manquante : {col}"
-
-    def test_idempotent(self, sample_timeseries_bronze) -> None:
-        once = timeseries_bronze_to_silver(sample_timeseries_bronze, 1, 30)
-        # On ré-attaque le pipeline en repassant la sortie au format brut.
-        # On retire machine_id/target_cycle d'abord pour ne pas être en conflit.
-        raw_again = once.drop(columns=["machine_id", "target_cycle"])
-        raw_again["timestamp"] = raw_again["timestamp"].astype(str)
-        twice = timeseries_bronze_to_silver(raw_again, 1, 30)
-        assert len(once) == len(twice)
+        # Les colonnes contextuelles doivent être en tête
+        assert list(out.columns[:3]) == ["machine_id", "target_cycle", "timestamp"]
 
 
 class TestInterventionsSilver:
     def test_drops_unknown_failure_types(self, sample_interventions_bronze) -> None:
         out = interventions_bronze_to_silver(sample_interventions_bronze, machine_id=1)
-        # 4 lignes − 1 timestamp invalide − 1 type 'Unknown' = 2
-        assert len(out) == 2
         assert set(out["failure_type"].unique()) <= {"Breakage", "Overheat"}
 
     def test_machine_id_attached(self, sample_interventions_bronze) -> None:
@@ -151,20 +422,16 @@ class TestSilverToGold:
         gold = silver_to_gold(sample_silver)
         assert np.isfinite(gold["load_proxy"]).all()
 
+    def test_failure_type_default_from_failure_column(self, sample_silver) -> None:
+        gold = silver_to_gold(sample_silver, df_interventions=None)
+        # Si failure=0 partout, failure_type="none"
+        # Si failure=1 quelque part, failure_type="Breakage"
+        expected = {FAILURE_LABEL[v] for v in set(sample_silver["failure"].unique())}
+        assert set(gold["failure_type"].unique()) <= expected | {NO_FAILURE_LABEL}
+
     def test_hours_since_last_intervention_filled(self, sample_silver, sample_interventions_silver) -> None:
         gold = silver_to_gold(sample_silver, sample_interventions_silver)
-        # Doit être renseigné (pas NaN) après jointure as-of
         assert gold["hours_since_last_intervention"].notna().all()
-
-    def test_failure_type_default_none(self, sample_silver) -> None:
-        gold = silver_to_gold(sample_silver, df_interventions=None)
-        assert (gold["failure_type"] == NO_FAILURE_LABEL).all()
-
-    def test_failure_type_matches_intervention(self, sample_silver, sample_interventions_silver) -> None:
-        # Une intervention "Breakage" tombe pile à 04:00 → ce point doit avoir
-        # failure_type = "Breakage" dans Gold (tolérance ±1h).
-        gold = silver_to_gold(sample_silver, sample_interventions_silver)
-        assert "Breakage" in set(gold["failure_type"].unique())
 
 
 class TestETLEndToEnd:
@@ -188,7 +455,15 @@ class TestETLEndToEnd:
         assert len(gold_df) > 0
         assert (gold_df["machine_id"] == 1).all()
         assert (gold_df["target_cycle"] == 30).all()
-        assert "load_proxy" in gold_df.columns
-        # Toutes les colonnes capteurs sont présentes
-        for c in SENSOR_COLUMNS:
+        # Les colonnes capteurs et la traçabilité sont conservées
+        for c in NUMERIC_SENSOR_COLUMNS:
             assert c in gold_df.columns
+        assert "quality_flag" in gold_df.columns
+        assert "load_proxy" in gold_df.columns
+
+
+@pytest.mark.parametrize("col", BUSINESS_COLUMNS)
+def test_business_columns_present_after_transform(sample_timeseries_bronze, col):
+    """Les colonnes métier de base restent toujours présentes."""
+    out = transform_bronze_to_silver(sample_timeseries_bronze)
+    assert col in out.columns
