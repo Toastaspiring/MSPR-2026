@@ -2,14 +2,15 @@
   "annotations": {"list": []},
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "uid": "mecha-sensors",
-  "title": "MECHA — Capteurs (séries temporelles)",
-  "tags": ["mecha", "sensors"],
+  "title": "MECHA — Capteurs & anomalies DBSCAN",
+  "description": "Séries temporelles des 7 capteurs (7D + cycle_ratio → espace 8D standardisé consommé par DBSCAN). Les points où cluster_label = -1 sont superposés en rouge.",
+  "tags": ["mecha", "sensors", "dbscan", "anomalies"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
   "time": {"from": "now-30d", "to": "now"},
   "templating": {
@@ -29,28 +30,63 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Température (°C)",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "title": "Score d'anomalie DBSCAN (distance / eps, clampée à 1)",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit", "min": 0, "max": 1,
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "showPoints": "never", "fillOpacity": 10},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 0.5},
+            {"color": "red", "value": 0.9}
+          ]}
+        }
+      },
       "targets": [{
-        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, \"temperature_C\" AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "rawSql": "SELECT recorded_at AS time, machine_id::text AS metric, anomaly_score AS value FROM predictions WHERE machine_id IN ($machine_id) AND $__timeFilter(recorded_at) ORDER BY recorded_at;",
         "format": "time_series"
       }]
     },
     {
       "type": "timeseries",
-      "title": "Vibration",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "title": "Température (°C) — anomalies DBSCAN en rouge",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "targets": [{
-        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, vibration AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
-        "format": "time_series"
-      }]
+      "fieldConfig": {"defaults": {"unit": "celsius"}, "overrides": [
+        {"matcher": {"id": "byRegexp", "options": ".*\\(anomalie\\)"}, "properties": [
+          {"id": "custom.drawStyle", "value": "points"},
+          {"id": "custom.pointSize", "value": 8},
+          {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+        ]}
+      ]},
+      "targets": [
+        {"refId": "A", "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, \"temperature_C\" AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";", "format": "time_series"},
+        {"refId": "B", "rawSql": "SELECT s.\"timestamp\" AS time, (s.machine_id::text || ' (anomalie)') AS metric, s.\"temperature_C\" AS value FROM sensor_data s JOIN predictions p ON p.machine_id = s.machine_id AND p.recorded_at = s.\"timestamp\" WHERE p.cluster_label = -1 AND s.machine_id IN ($machine_id) AND $__timeFilter(s.\"timestamp\") ORDER BY s.\"timestamp\";", "format": "time_series"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Vibration — anomalies DBSCAN en rouge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "fieldConfig": {"defaults": {}, "overrides": [
+        {"matcher": {"id": "byRegexp", "options": ".*\\(anomalie\\)"}, "properties": [
+          {"id": "custom.drawStyle", "value": "points"},
+          {"id": "custom.pointSize", "value": 8},
+          {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+        ]}
+      ]},
+      "targets": [
+        {"refId": "A", "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, vibration AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";", "format": "time_series"},
+        {"refId": "B", "rawSql": "SELECT s.\"timestamp\" AS time, (s.machine_id::text || ' (anomalie)') AS metric, s.vibration AS value FROM sensor_data s JOIN predictions p ON p.machine_id = s.machine_id AND p.recorded_at = s.\"timestamp\" WHERE p.cluster_label = -1 AND s.machine_id IN ($machine_id) AND $__timeFilter(s.\"timestamp\") ORDER BY s.\"timestamp\";", "format": "time_series"}
+      ]
     },
     {
       "type": "timeseries",
       "title": "Pression",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
       "targets": [{
         "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, pressure AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
@@ -60,7 +96,7 @@
     {
       "type": "timeseries",
       "title": "Rotation (rpm)",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
       "targets": [{
         "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, rpm AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
@@ -70,7 +106,7 @@
     {
       "type": "timeseries",
       "title": "Consommation (kWh)",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
       "targets": [{
         "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, \"consumption_kWh\" AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
@@ -80,10 +116,21 @@
     {
       "type": "timeseries",
       "title": "Voltage (V)",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
       "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
       "targets": [{
         "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, voltage AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
+        "format": "time_series"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cycle ratio (cycle_duration / target_cycle) — feature DBSCAN",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
+      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "fieldConfig": {"defaults": {"min": 0}},
+      "targets": [{
+        "rawSql": "SELECT \"timestamp\" AS time, machine_id::text AS metric, CASE WHEN target_cycle > 0 THEN cycle_duration::float / target_cycle ELSE 1.0 END AS value FROM sensor_data WHERE machine_id IN ($machine_id) AND $__timeFilter(\"timestamp\") ORDER BY \"timestamp\";",
         "format": "time_series"
       }]
     }

@@ -1,0 +1,26 @@
+# =============================================================================
+# Overlay DEMO — stack locale (docker-desktop) + streamer temps réel.
+# Réutilise l'overlay docker-desktop (StorageClass hostpath, images locales,
+# 1 réplique d'API) et y ajoute le Deployment `demo` qui rejoue le jeu de
+# données en continu pour faire « bouger » les dashboards Grafana.
+#
+# Lancer :  kubectl apply -k k8s/overlays/demo
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mecha-local
+
+resources:
+  - ../docker-desktop
+  - ../../base/demo-deployment.yaml
+
+patches:
+  # Images locales — pas de pull depuis ghcr.io (cohérent avec docker-desktop).
+  - target:
+      kind: Deployment
+      name: demo
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never

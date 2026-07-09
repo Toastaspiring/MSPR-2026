@@ -1,8 +1,8 @@
 -- =============================================================================
 -- MECHA — Schéma Postgres (datastore opérationnel pour Grafana)
--- Exécuté automatiquement au premier démarrage du conteneur postgres
--- (les SQL placés dans /docker-entrypoint-initdb.d sont rejoués UNE seule fois,
---  les TRUNCATE en CI/CD remettent à zéro le contenu sans toucher au schéma).
+-- Aligné sur le rendu écrit "MSPR Rendu écrit - DBSCAN.docx" : détection
+-- d'anomalies par DBSCAN, une observation devient une alerte lorsqu'elle
+-- appartient au cluster -1 (bruit / comportement inhabituel).
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -74,24 +74,26 @@ CREATE TABLE IF NOT EXISTS feature_snapshot (
 );
 
 -- -----------------------------------------------------------------------------
--- Prédictions API (alimentées en temps réel)
+-- Prédictions API — sortie DBSCAN (anomalie / cluster / score)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS predictions (
-    id                       BIGSERIAL PRIMARY KEY,
-    recorded_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    machine_id               INTEGER     NOT NULL,
-    model_version            TEXT        NOT NULL,
-    threshold                DOUBLE PRECISION NOT NULL,
-    failure_probability      DOUBLE PRECISION NOT NULL,
-    predicted_failure_type   TEXT        NOT NULL,
-    predicted_rul_hours      DOUBLE PRECISION NOT NULL,
-    alert_level              TEXT        NOT NULL
+    id             BIGSERIAL   PRIMARY KEY,
+    recorded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    machine_id     INTEGER     NOT NULL,
+    model_version  TEXT        NOT NULL,
+    cluster_label  INTEGER     NOT NULL,
+    anomaly        BOOLEAN     NOT NULL,
+    anomaly_score  DOUBLE PRECISION NOT NULL,
+    alert          BOOLEAN     NOT NULL,
+    alert_level    TEXT        NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_predictions_machine_time
     ON predictions (machine_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_alert
     ON predictions (alert_level, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_cluster
+    ON predictions (cluster_label, recorded_at DESC);
 
 -- -----------------------------------------------------------------------------
 -- Vue d'agrégat : dernière prédiction par machine — utilisée par Grafana
@@ -101,9 +103,10 @@ SELECT DISTINCT ON (machine_id)
     machine_id,
     recorded_at,
     model_version,
-    failure_probability,
-    predicted_failure_type,
-    predicted_rul_hours,
+    cluster_label,
+    anomaly,
+    anomaly_score,
+    alert,
     alert_level
 FROM predictions
 ORDER BY machine_id, recorded_at DESC;
@@ -115,9 +118,21 @@ CREATE OR REPLACE VIEW v_alerts_daily AS
 SELECT
     date_trunc('day', recorded_at) AS day,
     alert_level,
-    predicted_failure_type,
     COUNT(*) AS n_alerts
 FROM predictions
-WHERE alert_level <> 'nominal'
-GROUP BY 1, 2, 3
+WHERE alert = TRUE
+GROUP BY 1, 2
 ORDER BY 1 DESC;
+
+-- -----------------------------------------------------------------------------
+-- Distribution des clusters sur les dernières 24 h — utile pour "où sont
+-- les points bruit -1 ?".
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_cluster_distribution_24h AS
+SELECT
+    cluster_label,
+    COUNT(*) AS n_points
+FROM predictions
+WHERE recorded_at > NOW() - INTERVAL '24 hours'
+GROUP BY cluster_label
+ORDER BY cluster_label;

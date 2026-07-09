@@ -1,0 +1,19 @@
+{
+  "name": "mspr-2026",
+  "version": "1.0.0",
+  "description": "> **MSPR TPRE822** — Bloc 2 — Concevoir une solution IA\r > Certification **RNCP36582** — Chef de Projet Expert IA",
+  "main": "_shot.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "puppeteer": "^24.43.1"
+  }
+}

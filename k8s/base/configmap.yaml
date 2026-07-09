@@ -25,5 +25,13 @@ data:
   DASHBOARD_TITLE: "MECHA — Maintenance Prédictive"
   MLFLOW_TRACKING_URI: "file:///models/mlruns"
   MLFLOW_EXPERIMENT_NAME: "mecha-failure-prediction"
+  # MLflow >= 3 refuse le file store par défaut ; on autorise pour la démo.
+  MLFLOW_ALLOW_FILE_STORE: "true"
   APP_ENV: "production"
   APP_SITE_ID: "default"
+  # Mode DEMO (rejeu temps réel) — consommé par le Deployment `demo`
+  DEMO_SOURCE: "auto"
+  DEMO_INTERVAL_SECONDS: "2"
+  DEMO_MACHINES: "5"
+  DEMO_SYNTHETIC_POINTS: "720"
+  DEMO_LOOP: "true"

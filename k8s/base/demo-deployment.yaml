@@ -1,0 +1,72 @@
+# =============================================================================
+# Deployment DEMO — rejoue le jeu de données en temps réel vers Postgres + API.
+# N'est PAS inclus dans la base : activé uniquement via l'overlay `demo`
+# (kubectl apply -k k8s/overlays/demo). Aucun Service exposé : le pod écrit
+# directement dans Postgres et appelle l'API interne.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  labels:
+    app.kubernetes.io/name: demo
+    app.kubernetes.io/component: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo
+        app.kubernetes.io/component: demo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: demo
+          image: ghcr.io/mecha/demo:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: mecha-config
+            - secretRef:
+                name: mecha-postgres-secret
+          env:
+            - name: DEMO_SOURCE
+              value: "auto"
+            - name: DEMO_INTERVAL_SECONDS
+              value: "2"
+            - name: DEMO_MACHINES
+              value: "5"
+            - name: DEMO_SYNTHETIC_POINTS
+              value: "720"
+            - name: DEMO_LOOP
+              value: "true"
+          volumeMounts:
+            - name: gold
+              mountPath: /data/gold
+              readOnly: true
+            - name: logs
+              mountPath: /logs
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "768Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: gold
+          persistentVolumeClaim:
+            claimName: gold-data
+        - name: logs
+          persistentVolumeClaim:
+            claimName: logs-store

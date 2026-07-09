@@ -1,0 +1,8 @@
+# Service DEMO — rejeu temps réel du jeu de données vers Postgres + API
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+loguru>=0.7
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+requests>=2.31

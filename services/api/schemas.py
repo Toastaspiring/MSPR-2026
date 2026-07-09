@@ -1,4 +1,4 @@
-"""Schémas Pydantic d'entrée / sortie de l'API MECHA."""
+"""Schémas Pydantic d'entrée / sortie de l'API MECHA (DBSCAN)."""
 
 from __future__ import annotations
 
@@ -8,11 +8,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 AlertLevel = Literal["nominal", "warning", "critical"]
-FailureType = Literal["none", "Breakage", "Overheat"]
 
 
 class SensorReading(BaseModel):
-    """Mesure capteur instantanée pour une machine MECHA."""
+    """Mesure capteur instantanée pour une machine MECHA.
+
+    Le modèle DBSCAN consomme les 7 grandeurs physiques suivantes ; le
+    ratio `cycle_ratio = cycle_duration / target_cycle` est dérivé côté API.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -27,18 +30,6 @@ class SensorReading(BaseModel):
     rpm: float = Field(..., ge=0, le=5000)
     voltage: float = Field(..., ge=0, le=500)
 
-    # Features dérivées — facultatives, calculées par l'API si absentes
-    temperature_C_roll_mean_10: float | None = None
-    temperature_C_roll_std_10: float | None = None
-    temperature_C_delta: float | None = None
-    vibration_roll_mean_10: float | None = None
-    vibration_roll_std_10: float | None = None
-    vibration_delta: float | None = None
-    pressure_roll_mean_10: float | None = None
-    pressure_roll_std_10: float | None = None
-    pressure_delta: float | None = None
-    hours_since_last_intervention: float | None = None
-
 
 class PredictionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -47,17 +38,16 @@ class PredictionRequest(BaseModel):
 
 class PredictionItem(BaseModel):
     machine_id: int
-    failure_probability: float = Field(..., ge=0, le=1)
-    predicted_failure_type: FailureType
-    failure_type_probabilities: dict[str, float]
-    predicted_rul_hours: float = Field(..., ge=0)
+    cluster_label: int = Field(..., description="Identifiant du cluster DBSCAN ; -1 = anomalie/bruit")
+    anomaly: bool
+    anomaly_score: float = Field(..., ge=0, le=1, description="Distance normalisée au voisin core le plus proche")
     alert: bool
     alert_level: AlertLevel
 
 
 class PredictionResponse(BaseModel):
     model_version: str
-    threshold: float
+    threshold: float = Field(..., description="Seuil d'alerte critique sur `anomaly_score`")
     predictions: list[PredictionItem]
 
 
@@ -65,6 +55,6 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     models_loaded: bool
     model_trained_at: str | None = None
-    type_classes: list[str] = Field(default_factory=list)
+    n_machines_trained: int = 0
     site_id: str
     timestamp: datetime

@@ -11,6 +11,7 @@ data:
     apiVersion: 1
     datasources:
       - name: MECHA-Postgres
+        uid: MECHA-Postgres
         type: postgres
         access: proxy
         url: postgres:5432
@@ -24,6 +25,7 @@ data:
         isDefault: true
         editable: false
       - name: MECHA-Prometheus
+        uid: MECHA-Prometheus
         type: prometheus
         access: proxy
         url: http://prometheus:9090
@@ -96,6 +98,8 @@ spec:
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "false"
+            - name: GF_USERS_DEFAULT_THEME
+              value: "light"
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana

@@ -22,5 +22,5 @@ spec:
     name: bronze-data
   hostPath:
     # Docker Desktop expose le filesystem hôte sous /run/desktop/mnt/host/
-    path: /run/desktop/mnt/host/c/Users/louis/Documents/SCHOOL/MSPR/data/bronze
+    path: /run/desktop/mnt/host/c/Users/louis/Documents/SCHOOL/MSPR-2026/data/bronze
     type: Directory

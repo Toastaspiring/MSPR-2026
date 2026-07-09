@@ -2,7 +2,7 @@
 # MECHA — raccourcis de développement
 # =============================================================================
 .PHONY: help up down logs build rebuild ingest train predict test lint format \
-        grafana psql k8s-edge k8s-central clean
+        grafana psql k8s-edge k8s-central k8s-demo demo demo-down demo-logs clean
 
 help:
 	@echo "Cibles disponibles :"
@@ -21,6 +21,10 @@ help:
 	@echo "  format       — black (formatage automatique)"
 	@echo "  k8s-edge     — applique l'overlay K3s edge"
 	@echo "  k8s-central  — applique l'overlay K3s central"
+	@echo "  k8s-demo     — applique l'overlay DEMO (stack locale + streamer)"
+	@echo "  demo         — lance le streamer DEMO (Compose, profil demo)"
+	@echo "  demo-down    — arrête le streamer DEMO"
+	@echo "  demo-logs    — suit les logs du streamer DEMO"
 	@echo "  clean        — supprime les artefacts locaux (silver, gold, models, logs)"
 
 up:
@@ -75,6 +79,18 @@ k8s-edge:
 
 k8s-central:
 	kubectl apply -k k8s/overlays/central
+
+k8s-demo:
+	kubectl apply -k k8s/overlays/demo
+
+demo:
+	docker compose --profile demo up -d --build demo
+
+demo-down:
+	docker compose --profile demo rm -sf demo
+
+demo-logs:
+	docker compose --profile demo logs -f demo
 
 clean:
 	rm -rf data/silver/* data/gold/* models/*.joblib models/*.json models/mlruns logs/*

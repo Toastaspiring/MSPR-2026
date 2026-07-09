@@ -7,6 +7,7 @@ apiVersion: 1
 datasources:
   # ---- PostgreSQL : prédictions, séries Silver, interventions -------------
   - name: MECHA-Postgres
+    uid: MECHA-Postgres
     type: postgres
     access: proxy
     url: postgres:5432
@@ -23,6 +24,7 @@ datasources:
 
   # ---- Prometheus : métriques /metrics scrapées sur l'API ----------------
   - name: MECHA-Prometheus
+    uid: MECHA-Prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090

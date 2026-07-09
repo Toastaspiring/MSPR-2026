@@ -72,5 +72,14 @@ kubeconfig
 
 # Artefacts du document source
 unpacked/
+unpacked_mspr/
 MECHA_text.txt
 *.tmp.docx
+~$*.docx
+
+# Node (outillage local des scripts JS puppeteer)
+node_modules/
+
+# Claude Code local session
+.claude/
+

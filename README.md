@@ -67,6 +67,7 @@ restent internes.
 | `prometheus` | Scrape `/metrics` de l'API toutes les 15 s | `prom/prometheus:v2.54` | interne `:9090` |
 | `grafana` | **Dashboards métier provisionnés** | `grafana/grafana:11.2` | **host `:3000`** |
 | `scheduler` | Cron interne pour `etl` + `trainer` (APScheduler) | `python:3.11-slim` | interne |
+| `demo` | **Rejeu temps réel** du jeu de données (profil `demo`) — fait « bouger » les dashboards | `python:3.11-slim` | interne |
 
 Tous les conteneurs applicatifs tournent en **utilisateur non-root** et sont
 issus de **Dockerfiles multi-stage** (section 4.1).
@@ -95,7 +96,7 @@ automatiquement `machine_id` et `target_cycle` du nom de fichier.
 
 ```
 .
-├── docker-compose.yml             # orchestration des 7 services
+├── docker-compose.yml             # orchestration des services (+ `demo` en profil)
 ├── docker-compose.override.example.yml
 ├── .env.example                   # toute la configuration applicative
 ├── Makefile                       # raccourcis (up, ingest, train, predict, …)
@@ -113,13 +114,14 @@ automatiquement `machine_id` et `target_cycle` du nom de fichier.
 │   ├── trainer/                   # entraînement 3 modèles + MLflow
 │   ├── api/                       # FastAPI (schemas, model_loader, warehouse)
 │   ├── scheduler/                 # APScheduler (cron)
+│   ├── demo/                      # rejeu temps réel (streamer DEMO)
 │   ├── postgres/init/             # schéma SQL initial (sensor_data, interventions, predictions, vues)
 │   ├── prometheus/                # prometheus.yml
-│   └── grafana/                   # provisioning datasources + 3 dashboards JSON
+│   └── grafana/                   # provisioning datasources + 4 dashboards JSON
 │
 ├── k8s/
-│   ├── base/                      # postgres, prometheus, grafana, api, cronjobs, networkpolicy…
-│   └── overlays/{edge,central}/   # patches Kustomize
+│   ├── base/                      # postgres, prometheus, grafana, api, cronjobs, demo, networkpolicy…
+│   └── overlays/{edge,central,docker-desktop,demo}/  # patches Kustomize
 │
 ├── .github/workflows/             # ci.yml + cd.yml
 └── tests/                         # 30 tests unit + intégration
@@ -162,11 +164,14 @@ http://localhost:3000
 identifiants : valeurs de GF_SECURITY_ADMIN_USER / GF_SECURITY_ADMIN_PASSWORD du .env
 ```
 
-Trois dashboards sont déjà provisionnés dans le dossier *MECHA* :
+Quatre dashboards sont déjà provisionnés dans le dossier *MECHA* :
 
-1. **Vue parc** — état courant par machine, alertes 24h, derniers verdicts
+1. **Vue parc** — état courant par machine, anomalies 24h, derniers scores
 2. **Capteurs** — séries temporelles (température, vibration, pression, rpm, kWh, voltage) filtrables par machine
 3. **Santé API** — QPS, latence p50/p95/p99, taux d'erreur, alertes par niveau et par type
+4. **DEMO Live** — flux temps réel (rafraîchissement 5 s, fenêtre 15 min) : capteurs et score d'anomalie qui défilent, alimenté par le service `demo`
+
+> **Anomalies, pas pannes** — la solution *classifie des anomalies* : une anomalie n'est pas une panne, mais peut en être le début. Lorsqu'une anomalie est levée, on observe ~75 % de risque de panne sous 24 h.
 
 ### 5. Tester l'API
 
@@ -197,6 +202,40 @@ Réponse type :
 ```
 
 Chaque prédiction est aussi **persistée dans Postgres** (table `predictions`), ce qui alimente automatiquement Grafana.
+
+---
+
+## Mode DEMO (graphiques temps réel)
+
+Pour une démonstration, le service `demo` rejoue le jeu de données **comme s'il
+arrivait en temps réel** : à chaque tick il insère un lot de mesures dans
+`sensor_data` (horodatées à « maintenant ») et appelle l'API `/predict`, qui
+calcule les scores et les écrit dans `predictions`. Les dashboards — en
+particulier **DEMO Live** — affichent alors des courbes qui défilent.
+
+```bash
+make up           # stack de base (postgres, api, grafana, …)
+make demo         # lance le streamer (docker compose --profile demo up -d --build demo)
+make demo-logs    # suit le flux
+make demo-down    # arrête le streamer
+```
+
+Source des données (`DEMO_SOURCE`) :
+
+| Valeur | Comportement |
+|--------|--------------|
+| `auto` (défaut) | rejoue le dernier Parquet Gold s'il existe, sinon génère une trame synthétique réaliste (anomalies injectées) |
+| `gold` | rejoue uniquement le Gold (échoue si absent) |
+| `synthetic` | génère toujours une trame synthétique — aucun ETL requis |
+
+Réglages (`.env`) : `DEMO_INTERVAL_SECONDS` (cadence), `DEMO_MACHINES`,
+`DEMO_SYNTHETIC_POINTS`, `DEMO_LOOP`.
+
+Sur **Kubernetes**, l'overlay dédié déploie la stack locale + le streamer :
+
+```bash
+make k8s-demo     # kubectl apply -k k8s/overlays/demo
+```
 
 ---
 

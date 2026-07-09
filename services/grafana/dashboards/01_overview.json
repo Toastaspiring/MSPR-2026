@@ -1,125 +1,420 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
   "uid": "mecha-overview",
-  "title": "MECHA — Vue parc",
-  "tags": ["mecha", "overview"],
+  "title": "MECHA — Vue parc (DBSCAN)",
+  "description": "Détection d'anomalies par DBSCAN (approche non supervisée par densité) : cluster_label == -1 → point de bruit, comportement inhabituel à investiguer. Le modèle ne quantifie pas une probabilité de panne — il isole les observations qui s'écartent des zones de fonctionnement denses.",
+  "tags": [
+    "mecha",
+    "overview",
+    "anomalies",
+    "dbscan"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": {"from": "now-7d", "to": "now"},
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "panels": [
     {
       "type": "stat",
       "title": "Machines surveillées",
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-      "targets": [{
-        "rawSql": "SELECT COUNT(DISTINCT machine_id) AS value FROM sensor_data;",
-        "format": "table"
-      }]
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 36,
+          "titleSize": 14
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(DISTINCT machine_id) AS value FROM sensor_data;",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "stat",
-      "title": "Alertes (24h)",
-      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "orange", "value": 1},
-            {"color": "red", "value": 10}
-          ]}
+      "title": "Anomalies (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 36,
+          "titleSize": 14
         }
       },
-      "targets": [{
-        "rawSql": "SELECT COUNT(*) AS value FROM predictions WHERE alert_level <> 'nominal' AND recorded_at > NOW() - INTERVAL '24 hours';",
-        "format": "table"
-      }]
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS value FROM predictions WHERE anomaly = TRUE AND recorded_at > NOW() - INTERVAL '24 hours';",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Interventions enregistrées",
-      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-      "targets": [{
-        "rawSql": "SELECT COUNT(*) AS value FROM interventions;",
-        "format": "table"
-      }]
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 36,
+          "titleSize": 14
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COUNT(*) AS value FROM interventions;",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "stat",
-      "title": "Prédictions cumulées",
-      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-      "targets": [{
-        "rawSql": "SELECT COUNT(*) AS value FROM predictions;",
-        "format": "table"
-      }]
+      "title": "Taux de bruit DBSCAN (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 36,
+          "titleSize": 14
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT COALESCE(SUM(CASE WHEN cluster_label = -1 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0), 0) AS value FROM predictions WHERE recorded_at > NOW() - INTERVAL '24 hours';",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Modèle déployé",
-      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "options": {"colorMode": "value", "graphMode": "none", "textMode": "value", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^model_version$/"}},
-      "targets": [{
-        "rawSql": "SELECT model_version FROM predictions ORDER BY recorded_at DESC LIMIT 1;",
-        "format": "table"
-      }]
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^model_version$/"
+        },
+        "text": {
+          "valueSize": 36,
+          "titleSize": 14
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT model_version FROM predictions ORDER BY recorded_at DESC LIMIT 1;",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "table",
-      "title": "État courant par machine (dernière prédiction)",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
+      "title": "État courant par machine (dernier verdict DBSCAN)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
           {
-            "matcher": {"id": "byName", "options": "alert_level"},
+            "matcher": {
+              "id": "byName",
+              "options": "alert_level"
+            },
             "properties": [
-              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
-              {"id": "mappings", "value": [
-                {"type": "value", "options": {"nominal": {"color": "green"}, "warning": {"color": "orange"}, "critical": {"color": "red"}}}
-              ]}
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "nominal": {
+                        "color": "green"
+                      },
+                      "warning": {
+                        "color": "orange"
+                      },
+                      "critical": {
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cluster_label"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "-1": {
+                        "color": "red",
+                        "text": "-1 (bruit)"
+                      }
+                    }
+                  }
+                ]
+              }
             ]
           }
         ]
       },
-      "targets": [{
-        "rawSql": "SELECT machine_id, recorded_at, failure_probability, predicted_failure_type, predicted_rul_hours, alert_level FROM v_last_prediction_per_machine ORDER BY machine_id;",
-        "format": "table"
-      }]
+      "targets": [
+        {
+          "rawSql": "SELECT machine_id, recorded_at, cluster_label, anomaly, anomaly_score, alert_level FROM v_last_prediction_per_machine ORDER BY machine_id;",
+          "format": "table"
+        }
+      ]
     },
     {
       "type": "timeseries",
-      "title": "Probabilité de défaillance — par machine",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "targets": [{
-        "rawSql": "SELECT recorded_at AS time, machine_id::text AS metric, failure_probability AS value FROM predictions WHERE $__timeFilter(recorded_at) ORDER BY recorded_at;",
-        "format": "time_series"
-      }]
+      "title": "Score d'anomalie — par machine",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never",
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT recorded_at AS time, machine_id::text AS metric, anomaly_score AS value FROM predictions WHERE $__timeFilter(recorded_at) ORDER BY recorded_at;",
+          "format": "time_series"
+        }
+      ]
     },
     {
       "type": "barchart",
-      "title": "Types de défaillances historiques (interventions)",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
-      "datasource": {"type": "postgres", "uid": "MECHA-Postgres"},
-      "targets": [{
-        "rawSql": "SELECT failure_type AS metric, COUNT(*) AS value FROM interventions GROUP BY failure_type ORDER BY value DESC;",
-        "format": "table"
-      }]
+      "title": "Distribution des clusters DBSCAN (24h) — -1 = bruit/anomalie",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "MECHA-Postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisLabel": "points"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "-1"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT cluster_label::text AS metric, n_points AS value FROM v_cluster_distribution_24h ORDER BY cluster_label;",
+          "format": "table"
+        }
+      ]
     }
   ]
 }

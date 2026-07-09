@@ -99,7 +99,7 @@ jobs:
       matrix:
         # Postgres / Grafana / Prometheus utilisent des images officielles —
         # on ne build que nos services applicatifs.
-        service: [etl, trainer, api, scheduler]
+        service: [etl, trainer, api, scheduler, demo]
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +149,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [etl, trainer, api, scheduler]
+        service: [etl, trainer, api, scheduler, demo]
     steps:
       - name: Scan image avec Trivy
         uses: aquasecurity/trivy-action@master

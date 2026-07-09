@@ -1,13 +1,13 @@
-"""Application FastAPI — exposition des prédictions MECHA.
+"""Application FastAPI — exposition de la détection d'anomalies MECHA (DBSCAN).
 
 Endpoints :
-  - GET  /health      : santé du service + statut des modèles
-  - GET  /metrics     : métriques Prometheus (scrapées par Grafana/Prometheus)
-  - POST /predict     : scoring batch (failure, failure_type, RUL)
-  - GET  /           : redirection vers la doc OpenAPI
+  - GET  /health   : santé du service + statut du bundle DBSCAN
+  - GET  /metrics  : métriques Prometheus (scrapées par Prometheus/Grafana)
+  - POST /predict  : scoring batch (cluster_label, anomaly, anomaly_score, alert)
+  - GET  /         : redirection vers la doc OpenAPI
 
-Les prédictions sont également écrites en best-effort dans Postgres
-(table `predictions`) pour alimenter les dashboards Grafana.
+Les prédictions sont écrites en best-effort dans Postgres (table `predictions`)
+pour alimenter les dashboards Grafana.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import (
@@ -36,6 +35,7 @@ from .schemas import (
     PredictionItem,
     PredictionRequest,
     PredictionResponse,
+    SensorReading,
 )
 from .warehouse import insert_predictions
 
@@ -43,7 +43,6 @@ log = setup_logger("api")
 
 
 def _safe_counter(name: str, doc: str, labels: list[str] | None = None) -> Counter:
-    """Crée un Counter en réutilisant l'existant si déjà enregistré (tests, reload)."""
     existing = REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
     if existing is not None:
         return existing  # type: ignore[return-value]
@@ -57,9 +56,9 @@ def _safe_histogram(name: str, doc: str) -> Histogram:
     return Histogram(name, doc)
 
 
-# Ordre des features attendu par les modèles (cohérent avec trainer.train.FEATURE_COLUMNS)
-FEATURE_COLUMNS: list[str] = [
-    "target_cycle",
+# Features consommées par DBSCAN — doivent rester alignées avec
+# trainer.train.DBSCAN_FEATURES.
+DBSCAN_FEATURES: list[str] = [
     "consumption_kWh",
     "temperature_C",
     "vibration",
@@ -67,101 +66,69 @@ FEATURE_COLUMNS: list[str] = [
     "cycle_duration",
     "rpm",
     "voltage",
-    "temperature_C_roll_mean_10",
-    "temperature_C_roll_std_10",
-    "temperature_C_delta",
-    "vibration_roll_mean_10",
-    "vibration_roll_std_10",
-    "vibration_delta",
-    "pressure_roll_mean_10",
-    "pressure_roll_std_10",
-    "pressure_delta",
-    "load_proxy",
-    "energy_per_cycle",
-    "hours_since_last_intervention",
+    "cycle_ratio",
 ]
 
-# ----- Métriques Prometheus (idempotent face aux importlib.reload) ----------
+
 PREDICT_REQUESTS = _safe_counter("mecha_api_predict_requests", "Nombre total de requêtes /predict", ["status"])
 PREDICT_LATENCY = _safe_histogram("mecha_api_predict_latency_seconds", "Latence du endpoint /predict")
 PREDICTIONS_BY_MACHINE = _safe_counter("mecha_api_predictions", "Prédictions produites par machine", ["machine_id"])
 ALERTS_BY_LEVEL = _safe_counter("mecha_api_alerts", "Alertes émises par niveau", ["level"])
-ALERTS_BY_TYPE = _safe_counter(
-    "mecha_api_alerts_by_type", "Alertes émises par type de défaillance prédit", ["failure_type"]
+ANOMALIES_BY_MACHINE = _safe_counter(
+    "mecha_api_anomalies", "Points classés en cluster -1 (anomalies)", ["machine_id"]
 )
 
 
-# ----- Lifespan -------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Démarrage API — env={} site={}", settings.app_env, settings.app_site_id)
     registry.maybe_reload()
     if not registry.loaded:
-        log.warning("Aucun modèle chargé au démarrage — /predict retournera 503.")
+        log.warning("Bundle DBSCAN non chargé au démarrage — /predict retournera 503.")
     yield
     log.info("Arrêt de l'API.")
 
 
 app = FastAPI(
-    title="MECHA — API de maintenance prédictive",
+    title="MECHA — API de détection d'anomalies (DBSCAN)",
     description=(
-        "Trois modèles complémentaires : probabilité de défaillance, "
-        "type prédit (Breakage / Overheat), durée résiduelle estimée."
+        "Détection non supervisée par densité conformément au rendu écrit : "
+        "cluster_label == -1 → anomalie, alerte remontée aux équipes maintenance."
     ),
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 
-# ----- Helpers --------------------------------------------------------------
-def _alert_level(p: float) -> str:
-    if p >= max(0.9, settings.failure_alert_threshold):
+def _alert_level(anomaly: bool, score: float) -> str:
+    if not anomaly:
+        return "nominal"
+    if score >= max(0.9, settings.failure_alert_threshold):
         return "critical"
-    if p >= settings.failure_alert_threshold:
-        return "warning"
-    return "nominal"
+    return "warning"
 
 
-def _readings_to_dataframe(readings) -> pd.DataFrame:
-    rows = []
-    for r in readings:
-        # Compute derived features if not provided
-        load_proxy = (r.rpm * r.pressure) / (abs(r.voltage) + 1.0)
-        energy = r.consumption_kWh * r.cycle_duration
-        rows.append(
-            {
-                "target_cycle": r.target_cycle,
-                "consumption_kWh": r.consumption_kWh,
-                "temperature_C": r.temperature_C,
-                "vibration": r.vibration,
-                "pressure": r.pressure,
-                "cycle_duration": r.cycle_duration,
-                "rpm": r.rpm,
-                "voltage": r.voltage,
-                "temperature_C_roll_mean_10": (
-                    r.temperature_C_roll_mean_10 if r.temperature_C_roll_mean_10 is not None else r.temperature_C
-                ),
-                "temperature_C_roll_std_10": r.temperature_C_roll_std_10 or 0.0,
-                "temperature_C_delta": r.temperature_C_delta or 0.0,
-                "vibration_roll_mean_10": (
-                    r.vibration_roll_mean_10 if r.vibration_roll_mean_10 is not None else r.vibration
-                ),
-                "vibration_roll_std_10": r.vibration_roll_std_10 or 0.0,
-                "vibration_delta": r.vibration_delta or 0.0,
-                "pressure_roll_mean_10": r.pressure_roll_mean_10 if r.pressure_roll_mean_10 is not None else r.pressure,
-                "pressure_roll_std_10": r.pressure_roll_std_10 or 0.0,
-                "pressure_delta": r.pressure_delta or 0.0,
-                "load_proxy": load_proxy,
-                "energy_per_cycle": energy,
-                "hours_since_last_intervention": (
-                    r.hours_since_last_intervention if r.hours_since_last_intervention is not None else 9999.0
-                ),
-            }
+def _readings_to_array(readings: list[SensorReading]) -> tuple[np.ndarray, list[int]]:
+    """Construit la matrice DBSCAN et la liste des machine_ids alignée."""
+    n = len(readings)
+    X = np.empty((n, len(DBSCAN_FEATURES)), dtype=float)
+    machine_ids: list[int] = []
+    for i, r in enumerate(readings):
+        cycle_ratio = float(r.cycle_duration) / float(r.target_cycle) if r.target_cycle else 1.0
+        X[i] = (
+            r.consumption_kWh,
+            r.temperature_C,
+            r.vibration,
+            r.pressure,
+            r.cycle_duration,
+            r.rpm,
+            r.voltage,
+            cycle_ratio,
         )
-    return pd.DataFrame(rows, columns=FEATURE_COLUMNS).astype(float)
+        machine_ids.append(int(r.machine_id))
+    return X, machine_ids
 
 
-# ----- Endpoints ------------------------------------------------------------
 @app.get("/health", response_model=HealthResponse, tags=["meta"])
 def health() -> HealthResponse:
     registry.maybe_reload()
@@ -169,7 +136,7 @@ def health() -> HealthResponse:
         status="ok" if registry.loaded else "degraded",
         models_loaded=registry.loaded,
         model_trained_at=registry.trained_at,
-        type_classes=registry.type_classes,
+        n_machines_trained=registry.n_machines,
         site_id=settings.app_site_id,
         timestamp=datetime.now(timezone.utc),
     )
@@ -177,7 +144,6 @@ def health() -> HealthResponse:
 
 @app.get("/metrics", response_class=PlainTextResponse, tags=["meta"])
 def metrics():
-    """Export Prometheus standard — scrapé par Prometheus/Grafana."""
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -188,13 +154,13 @@ def predict(req: PredictionRequest) -> PredictionResponse:
         PREDICT_REQUESTS.labels(status="unavailable").inc()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Modèles non chargés — l'entraînement doit avoir été exécuté.",
+            detail="Bundle DBSCAN non chargé — l'entraînement doit avoir été exécuté.",
         )
 
     with PREDICT_LATENCY.time():
-        X = _readings_to_dataframe(req.readings)
+        X, machine_ids = _readings_to_array(req.readings)
         try:
-            probas, type_dicts, ruls = registry.predict(X)
+            cluster_labels, anomaly_scores = registry.predict(X, machine_ids)
         except Exception as exc:  # noqa: BLE001
             PREDICT_REQUESTS.labels(status="error").inc()
             log.exception("Erreur de prédiction : {}", exc)
@@ -204,18 +170,17 @@ def predict(req: PredictionRequest) -> PredictionResponse:
         rows_to_persist: list[dict] = []
         threshold = settings.failure_alert_threshold
 
-        for reading, p, type_proba, rul in zip(req.readings, probas, type_dicts, ruls):
-            level = _alert_level(float(p))
-            is_alert = level != "nominal"
-            predicted_type = max(type_proba, key=type_proba.get)
+        for reading, lbl, score in zip(req.readings, cluster_labels, anomaly_scores):
+            is_anomaly = lbl == -1
+            level = _alert_level(is_anomaly, float(score))
+            is_alert = is_anomaly
 
             items.append(
                 PredictionItem(
                     machine_id=reading.machine_id,
-                    failure_probability=float(np.clip(p, 0.0, 1.0)),
-                    predicted_failure_type=predicted_type,  # type: ignore[arg-type]
-                    failure_type_probabilities={k: float(v) for k, v in type_proba.items()},
-                    predicted_rul_hours=float(max(0.0, rul)),
+                    cluster_label=int(lbl),
+                    anomaly=is_anomaly,
+                    anomaly_score=float(score),
                     alert=is_alert,
                     alert_level=level,  # type: ignore[arg-type]
                 )
@@ -224,21 +189,19 @@ def predict(req: PredictionRequest) -> PredictionResponse:
                 {
                     "machine_id": reading.machine_id,
                     "model_version": registry.version,
-                    "threshold": threshold,
-                    "failure_probability": float(np.clip(p, 0.0, 1.0)),
-                    "predicted_failure_type": predicted_type,
-                    "predicted_rul_hours": float(max(0.0, rul)),
+                    "cluster_label": int(lbl),
+                    "anomaly": is_anomaly,
+                    "anomaly_score": float(score),
+                    "alert": is_alert,
                     "alert_level": level,
                 }
             )
 
-            # Métriques Prometheus
             PREDICTIONS_BY_MACHINE.labels(machine_id=str(reading.machine_id)).inc()
             ALERTS_BY_LEVEL.labels(level=level).inc()
-            if is_alert:
-                ALERTS_BY_TYPE.labels(failure_type=predicted_type).inc()
+            if is_anomaly:
+                ANOMALIES_BY_MACHINE.labels(machine_id=str(reading.machine_id)).inc()
 
-        # Best-effort persistance Postgres
         n_inserted = insert_predictions(rows_to_persist)
         if n_inserted:
             log.debug("Persisté {} prédictions dans Postgres", n_inserted)
@@ -257,7 +220,8 @@ def root() -> JSONResponse:
     return JSONResponse(
         {
             "service": "mecha-api",
-            "version": "1.0.0",
+            "version": "2.0.0",
+            "algorithm": "DBSCAN",
             "docs": "/docs",
             "openapi": "/openapi.json",
         }

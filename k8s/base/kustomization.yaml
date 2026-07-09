@@ -29,6 +29,7 @@ configMapGenerator:
       - ../../services/grafana/dashboards/01_overview.json
       - ../../services/grafana/dashboards/02_sensors.json
       - ../../services/grafana/dashboards/03_api_metrics.json
+      - ../../services/grafana/dashboards/04_demo_live.json
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -39,4 +40,6 @@ images:
   - name: ghcr.io/mecha/trainer
     newTag: latest
   - name: ghcr.io/mecha/api
+    newTag: latest
+  - name: ghcr.io/mecha/demo
     newTag: latest

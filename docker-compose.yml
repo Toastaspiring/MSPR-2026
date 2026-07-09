@@ -153,6 +153,36 @@ services:
         condition: service_started
 
   # -------------------------------------------------------------------------
+  # Demo — rejoue le jeu de données en temps réel (profil `demo` uniquement)
+  # Lancer avec : docker compose --profile demo up -d demo
+  # -------------------------------------------------------------------------
+  demo:
+    build:
+      context: .
+      dockerfile: services/demo/Dockerfile
+    image: ghcr.io/mecha/demo:${IMAGE_TAG:-latest}
+    container_name: mecha-demo
+    restart: unless-stopped
+    profiles: ["demo"]
+    env_file: .env
+    environment:
+      DEMO_SOURCE: ${DEMO_SOURCE:-auto}
+      DEMO_INTERVAL_SECONDS: ${DEMO_INTERVAL_SECONDS:-2}
+      DEMO_MACHINES: ${DEMO_MACHINES:-5}
+      DEMO_SYNTHETIC_POINTS: ${DEMO_SYNTHETIC_POINTS:-720}
+      DEMO_LOOP: ${DEMO_LOOP:-true}
+    networks:
+      - mecha-net
+    volumes:
+      - gold-data:/data/gold:ro
+      - logs-store:/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
   # Scheduler — déclenche etl + trainer aux fréquences configurées
   # -------------------------------------------------------------------------
   scheduler:
